@@ -161,6 +161,22 @@ async function handleDeleteSelected() {
     }
 }
 
+async function handleDeleteAllParticipants() {
+    if (confirm("정말로 모든 기준정보 데이터를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.")) {
+        try {
+            await db.deleteAllParticipants();
+            participantsCache = []; // Clear cache
+            selectedParticipantIds.clear(); // Clear selection
+            currentPage = 1; // Reset to first page
+            await loadAndRenderParticipants(true); // Force reload and re-render
+            alert('모든 기준정보가 성공적으로 삭제되었습니다.');
+        } catch (error) {
+            console.error("Failed to delete all participants:", error);
+            alert("전체 정보 삭제에 실패했습니다: " + error.message);
+        }
+    }
+}
+
 function handleExcelUpload(file) {
     const reader = new FileReader();
     reader.onload = async (e) => {
@@ -279,7 +295,7 @@ export async function goToNextPage() {
 }
 
 export function initMasterDataModule(containerId) {
-    renderMasterDataView(containerId, handleAddParticipant, handleExcelUpload, handleDeleteSelected);
+    renderMasterDataView(containerId, handleAddParticipant, handleExcelUpload, handleDeleteSelected, handleDeleteAllParticipants);
     const editForm = document.getElementById('editParticipantForm');
     if(editForm) {
         editForm.addEventListener('submit', handleSaveEditParticipant);

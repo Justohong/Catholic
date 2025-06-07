@@ -96,6 +96,7 @@ function renderShareCalendar(year, month, scheduleDays, participantsList) {
     const table = document.createElement('table');
     table.style.width = '100%';
     table.style.borderCollapse = 'collapse';
+    table.style.tableLayout = 'fixed';
     table.style.border = '1px solid #cbd5e1'; // Equivalent to border-slate-300
 
     const header = table.createTHead();
@@ -115,6 +116,7 @@ function renderShareCalendar(year, month, scheduleDays, participantsList) {
         th.style.zIndex = '10';
         th.style.backgroundColor = '#f1f5f9'; // bg-slate-100
         th.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)'; // shadow-sm
+        th.style.width = `${100 / 7}%`;
         th.textContent = dayName;
         headerRow.appendChild(th);
     });

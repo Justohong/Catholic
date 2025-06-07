@@ -8,7 +8,7 @@ import {
 // Global UI variables for pagination elements
 let prevPageBtnEl, nextPageBtnEl, pageInfoSpanEl;
 
-export function renderMasterDataView(containerId, onAdd, onExcelUpload, onDeleteSelected) {
+export function renderMasterDataView(containerId, onAdd, onExcelUpload, onDeleteSelected, onDeleteAll) {
     const container = document.getElementById(containerId);
     if (!container) return;
 
@@ -60,9 +60,14 @@ export function renderMasterDataView(containerId, onAdd, onExcelUpload, onDelete
         
         <div class="flex justify-between items-center mb-4">
             <h3 class="text-lg font-medium text-sky-600">등록된 정보 목록</h3>
-            <button id="deleteSelectedBtn" class="btn btn-danger" disabled>
-                <i data-lucide="trash-2" class="mr-2 h-5 w-5"></i>선택 항목 삭제
-            </button>
+            <div class="flex space-x-2">
+                <button id="deleteSelectedBtn" class="btn btn-danger" disabled>
+                    <i data-lucide="trash-2" class="mr-2 h-5 w-5"></i>선택 항목 삭제
+                </button>
+                <button id="deleteAllBtn" class="btn btn-danger">
+                    <i data-lucide="alert-triangle" class="mr-2 h-5 w-5"></i>전체 삭제
+                </button>
+            </div>
         </div>
         <div id="masterDataTableContainer" class="overflow-x-auto bg-white rounded-lg shadow">
             <p class="p-4 text-slate-500">데이터를 불러오는 중입니다...</p>
@@ -141,6 +146,7 @@ export function renderMasterDataView(containerId, onAdd, onExcelUpload, onDelete
     });
     
     document.getElementById('deleteSelectedBtn').addEventListener('click', onDeleteSelected);
+    document.getElementById('deleteAllBtn').addEventListener('click', onDeleteAll);
 
 
     document.getElementById('cancelEditBtn').addEventListener('click', () => {
