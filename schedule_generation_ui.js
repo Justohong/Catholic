@@ -141,7 +141,7 @@ function renderCalendar(year, month, scheduleData) {
     const headerRow = document.createElement('tr');
     KOREAN_DAYS.forEach(day => {
         const th = document.createElement('th');
-        th.className = 'px-3 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider';
+        th.className = 'px-3 py-1 text-center text-xs font-medium text-slate-500 uppercase tracking-wider';
         th.textContent = day;
         headerRow.appendChild(th);
     });
