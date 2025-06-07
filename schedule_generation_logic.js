@@ -11,6 +11,13 @@ const TIME_SLOT_CONFIG = {
 };
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+function getWeekOfMonth(date) {
+  // Returns the 0-indexed week of the month.
+  // The first day of the month (e.g., 1st) is in week 0.
+  // 8th is in week 1, 15th in week 2, etc.
+  return Math.floor((date.getDate() - 1) / 7);
+}
+
 async function getParticipantsMap(participantsList) {
     const map = new Map();
     participantsList.forEach(p => map.set(p.id, p));
@@ -44,6 +51,9 @@ export async function generateSchedule(year, month) {
 
     const assignmentCounts = new Map(); 
     participants.forEach(p => assignmentCounts.set(p.id, { total: 0, random_elementary: 0, random_middle: 0 }));
+
+    const participantWeeklyAssignments = new Map(); // participantId -> Set of week numbers
+    participants.forEach(p => participantWeeklyAssignments.set(p.id, new Set()));
     
     const fixedAbsenteeAssignments = new Map(); 
     prevMonthAbsentees.forEach(id => fixedAbsenteeAssignments.set(id, 0));
@@ -86,18 +96,31 @@ export async function generateSchedule(year, month) {
                     if (assignedPair.length === 2) break;
                     if (dailyAssignments.has(absenteeObj.id)) continue;
 
-                    let partnerObj = targetPool.find(p => 
-                        p.id !== absenteeObj.id &&
-                        p.gender === absenteeObj.gender && // SAME GENDER CHECK
-                        !dailyAssignments.has(p.id) && 
+                    // New weekly assignment eligibility check for absenteeObj
+                    const absenteeCounts = assignmentCounts.get(absenteeObj.id);
+                    const absenteeWeeklyAssignments = participantWeeklyAssignments.get(absenteeObj.id);
+                    const currentWeekForSlot = getWeekOfMonth(currentDate);
+                    if (absenteeCounts.total >= 2 && absenteeWeeklyAssignments.has(currentWeekForSlot)) {
+                        continue; // Skip this absenteeObj if ineligible
+                    }
+
+                    // Filter for eligible partners for the absenteeObj
+                    // const currentWeekForSlot = getWeekOfMonth(currentDate); // Already available from absenteeObj check
+                    const eligiblePartnersPool = targetPool.filter(p => {
+                        if (p.id === absenteeObj.id || dailyAssignments.has(p.id) || p.gender !== absenteeObj.gender) return false;
+                        const pCounts = assignmentCounts.get(p.id);
+                        const pWeeklyAssignments = participantWeeklyAssignments.get(p.id);
+                        if (pCounts.total >= 2 && pWeeklyAssignments.has(currentWeekForSlot)) {
+                            return false; // Ineligible due to weekly rule
+                        }
+                        return true;
+                    });
+
+                    let partnerObj = eligiblePartnersPool.find(p =>
                         (!prevMonthAbsentees.has(p.id) || (fixedAbsenteeAssignments.get(p.id) || 0) >= 2)
                     );
-                    if (!partnerObj) {
-                        partnerObj = targetPool.find(p => 
-                            p.id !== absenteeObj.id &&
-                            p.gender === absenteeObj.gender && // SAME GENDER CHECK
-                            !dailyAssignments.has(p.id)
-                        );
+                    if (!partnerObj) { // If no such preferred partner, try any eligible partner from the filtered pool
+                        partnerObj = eligiblePartnersPool.find(p => true);
                     }
 
                     if (partnerObj) {
@@ -132,6 +155,14 @@ export async function generateSchedule(year, month) {
                             const absenteeFixedCount = fixedAbsenteeAssignments.get(candidate.id) || 0;
                             if (isPrevAbsentee && absenteeFixedCount >= 2) continue;
 
+                            // New weekly assignment eligibility check for p1 candidate
+                            const p1CandidateCounts = assignmentCounts.get(candidate.id);
+                            const p1CandidateWeeklyAssignments = participantWeeklyAssignments.get(candidate.id);
+                            const currentWeekForSlot = getWeekOfMonth(currentDate); // Ensure currentDate is in scope
+                            if (p1CandidateCounts.total >= 2 && p1CandidateWeeklyAssignments.has(currentWeekForSlot)) {
+                                continue; // Skip this candidate for p1
+                            }
+
                             p1Obj = candidate;
                             break;
                         }
@@ -150,6 +181,14 @@ export async function generateSchedule(year, month) {
                             const isPrevAbsentee = prevMonthAbsentees.has(candidate.id);
                             const absenteeFixedCount = fixedAbsenteeAssignments.get(candidate.id) || 0;
                             if (isPrevAbsentee && absenteeFixedCount >= 2) continue;
+
+                            // New weekly assignment eligibility check for p2 candidate
+                            const p2CandidateCounts = assignmentCounts.get(candidate.id);
+                            const p2CandidateWeeklyAssignments = participantWeeklyAssignments.get(candidate.id);
+                            const currentWeekForSlot = getWeekOfMonth(currentDate); // Ensure currentDate is in scope
+                            if (p2CandidateCounts.total >= 2 && p2CandidateWeeklyAssignments.has(currentWeekForSlot)) {
+                                continue; // Skip this candidate for p2
+                            }
 
                             if (candidate.gender === p1Obj.gender) { // SAME GENDER CHECK
                                 p2Obj = candidate;
@@ -190,12 +229,30 @@ export async function generateSchedule(year, month) {
                 });
 
                 for (let i = 0; i < eligibleForRandom.length && assignedPair.length < 2; i++) {
-                    const p1Obj = eligibleForRandom[i];
-                    if (dailyAssignments.has(p1Obj.id)) continue;
+                    const p1Candidate = eligibleForRandom[i];
+                    if (dailyAssignments.has(p1Candidate.id)) continue;
+
+                    // New weekly assignment eligibility check for p1Candidate
+                    const p1Counts = assignmentCounts.get(p1Candidate.id);
+                    const p1WeeklyAssignments = participantWeeklyAssignments.get(p1Candidate.id);
+                    const currentWeekForSlot = getWeekOfMonth(currentDate);
+                    if (p1Counts.total >= 2 && p1WeeklyAssignments.has(currentWeekForSlot)) {
+                        continue; // Skip this p1Candidate
+                    }
+                    const p1Obj = p1Candidate; // Assign to p1Obj if eligible
 
                     for (let j = i + 1; j < eligibleForRandom.length; j++) {
-                        const p2Obj = eligibleForRandom[j];
-                        if (dailyAssignments.has(p2Obj.id)) continue;
+                        const p2Candidate = eligibleForRandom[j];
+                        if (dailyAssignments.has(p2Candidate.id)) continue;
+
+                        // New weekly assignment eligibility check for p2Candidate
+                        const p2Counts = assignmentCounts.get(p2Candidate.id);
+                        const p2WeeklyAssignments = participantWeeklyAssignments.get(p2Candidate.id);
+                        // currentWeekForSlot is already defined from p1Obj check scope
+                        if (p2Counts.total >= 2 && p2WeeklyAssignments.has(currentWeekForSlot)) {
+                            continue; // Skip this p2Candidate
+                        }
+                        const p2Obj = p2Candidate; // Assign to p2Obj if eligible
 
                         if (p1Obj.gender === p2Obj.gender) { // SAME GENDER CHECK
                             assignedPair = [p1Obj.id, p2Obj.id];
@@ -220,6 +277,14 @@ export async function generateSchedule(year, month) {
                              p1ScannedThisTry++;
                             const candidate = eligibleForRandom[(effectiveCurrentIndex + i) % eligibleForRandom.length];
                             if (!candidate || dailyAssignments.has(candidate.id) || assignedPair.includes(candidate.id)) continue;
+
+                            // New weekly assignment eligibility check for p1 candidate
+                            const p1CandidateCounts = assignmentCounts.get(candidate.id);
+                            const p1CandidateWeeklyAssignments = participantWeeklyAssignments.get(candidate.id);
+                            const currentWeekForSlot = getWeekOfMonth(currentDate);
+                            if (p1CandidateCounts.total >= 2 && p1CandidateWeeklyAssignments.has(currentWeekForSlot)) {
+                                continue; // Skip this candidate for p1
+                            }
                             p1Obj = candidate;
                             break;
                         }
@@ -232,6 +297,14 @@ export async function generateSchedule(year, month) {
                             const p2CandidateIndex = (effectiveCurrentIndex + p1ScannedThisTry -1 + i) % eligibleForRandom.length;
                             const candidate = eligibleForRandom[p2CandidateIndex];
                             if (!candidate || dailyAssignments.has(candidate.id) || candidate.id === p1Obj.id || assignedPair.includes(candidate.id)) continue;
+
+                            // New weekly assignment eligibility check for p2 candidate
+                            // currentWeekForSlot is already defined from p1Obj check scope
+                            const p2CandidateCounts = assignmentCounts.get(candidate.id);
+                            const p2CandidateWeeklyAssignments = participantWeeklyAssignments.get(candidate.id);
+                            if (p2CandidateCounts.total >= 2 && p2CandidateWeeklyAssignments.has(currentWeekForSlot)) {
+                                continue; // Skip this candidate for p2
+                            }
                             
                             if (candidate.gender === p1Obj.gender) { // SAME GENDER CHECK
                                 p2Obj = candidate;
@@ -262,6 +335,9 @@ export async function generateSchedule(year, month) {
                         if (slotInfo.type === 'elementary') counts.random_elementary++;
                         else counts.random_middle++;
                     }
+                    // Update weekly assignments
+                    const weekOfMonth = getWeekOfMonth(currentDate);
+                    participantWeeklyAssignments.get(id).add(weekOfMonth);
                 });
                 const assignedPairNames = assignedPair.map(id => participantsMap.get(id)?.name || `ID:${id}`);
 
