@@ -141,6 +141,9 @@ export async function generateSchedule(year, month) {
 
     const participantWeeklyAssignments = new Map();
     participants.forEach(p => participantWeeklyAssignments.set(p.id, new Set()));
+
+    const absenteeFixedWeeklyAssignments = new Map(); // participantId -> Set of week numbers for fixed assignments this month
+    participants.forEach(p => absenteeFixedWeeklyAssignments.set(p.id, new Set()));
     
     const fixedAbsenteeAssignments = new Map(); 
     const prevMonthAbsenteesList = await db.getAbsenteesForMonth(new Date(year, month - 1, 0).getFullYear(), new Date(year, month - 1, 0).getMonth() + 1);
@@ -192,6 +195,10 @@ export async function generateSchedule(year, month) {
                     if (absenteeCountsMap.get('total') >= 2 && absenteeWeeklyAssignments.has(currentWeekForSlot)) {
                         continue;
                     }
+                    // Additional check for fixed assignments this week
+                    if (absenteeFixedWeeklyAssignments.get(absentee.id)?.has(currentWeekForSlot)) {
+                        continue; // This absentee has already had a fixed assignment this week.
+                    }
                     const absenteeData = getEnhancedParticipantData(absentee, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts);
 
 
@@ -226,6 +233,7 @@ export async function generateSchedule(year, month) {
                         assignedPair = [absentee.id, partnerObj.id];
                         fixedAbsenteeAssignments.set(absentee.id, (fixedAbsenteeAssignments.get(absentee.id) || 0) + 1);
                         fixedAssigneeId = absentee.id;
+                        absenteeFixedWeeklyAssignments.get(absentee.id).add(currentWeekForSlot); // Record fixed assignment for this week
                         break; 
                     }
                 }
