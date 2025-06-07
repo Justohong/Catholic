@@ -41,3 +41,14 @@ export async function toggleAbsenceStatus(participantId, dateString, year, month
         throw error;
     }
 }
+
+export async function clearAllAbsencesInView(year, month, day = null) {
+    // day가 null이면 월 전체, day 값이 있으면 해당 일자
+    try {
+        const count = await db.clearAbsencesForPeriod(year, month, day);
+        return { success: true, countCleared: count };
+    } catch (error) {
+        console.error(`Error clearing all absences for ${year}-${month}${day ? '-' + String(day).padStart(2,'0') : ''}:`, error);
+        return { success: false, error: error };
+    }
+}

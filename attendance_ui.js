@@ -164,6 +164,30 @@ export async function initAttendanceView(containerId) {
         isAttendanceViewInitialized = true;
     }
 
+    // Add "Reset All Absences" button - outside the isAttendanceViewInitialized block for idempotency
+    let resetAllAbsencesBtn = viewElement.querySelector('#reset-all-absences-btn');
+    if (!resetAllAbsencesBtn && attendanceFilterToggle && attendanceFilterToggle.parentNode) {
+        resetAllAbsencesBtn = document.createElement('button');
+        resetAllAbsencesBtn.id = 'reset-all-absences-btn';
+        resetAllAbsencesBtn.title = '현재 보기의 모든 결석을 출석으로 변경';
+        resetAllAbsencesBtn.className = 'btn btn-icon btn-outline-danger p-1.5 ml-2'; // Tailwind CSS classes
+        resetAllAbsencesBtn.innerHTML = '<i data-lucide="trash-2" class="h-4 w-4"></i>';
+
+        // Insert after the attendanceFilterToggle button
+        attendanceFilterToggle.parentNode.insertBefore(resetAllAbsencesBtn, attendanceFilterToggle.nextSibling);
+        resetAllAbsencesBtn.addEventListener('click', handleResetAllAbsences);
+    } else if (resetAllAbsencesBtn && !isAttendanceViewInitialized) {
+        // If button exists but listeners not set (e.g. view re-init without full refresh)
+        // Remove old listener before adding new one to be safe, or assume it's fine if init logic is strict
+        resetAllAbsencesBtn.removeEventListener('click', handleResetAllAbsences); // Remove potential old one
+        resetAllAbsencesBtn.addEventListener('click', handleResetAllAbsences); // Add fresh one
+    }
+
+
+    if (typeof lucide !== 'undefined') { // Ensure icons are rendered
+        lucide.createIcons();
+    }
+
     // Initial data load - this should run every time the view is shown.
     loadAndRenderSingleDayAttendance(parseInt(yearSelect.value), parseInt(monthSelect.value), parseInt(daySelect.value));
 }
@@ -406,6 +430,52 @@ async function loadAndRenderMonthlyAttendance(year, month) {
     }
     if (typeof lucide !== 'undefined') {
         lucide.createIcons();
+    }
+}
+
+async function handleResetAllAbsences() {
+    const year = parseInt(yearSelect.value);
+    const month = parseInt(monthSelect.value);
+    let day = null;
+    let periodString = `${year}년 ${month}월`;
+
+    if (currentAttendanceViewMode === 'daily') {
+        if (!daySelect.value) { // Check if daySelect has a value
+            alert('일별 보기 모드에서는 날짜를 선택해야 합니다.');
+            return;
+        }
+        day = parseInt(daySelect.value);
+        if (isNaN(day)) {
+            alert('유효한 날짜를 선택해주세요.');
+            return;
+        }
+        periodString += ` ${day}일`;
+    }
+
+    if (confirm(`정말로 ${periodString}의 모든 결석 기록을 출석으로 변경하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
+        try {
+            messageDiv.textContent = '일괄 출석 처리 중...';
+            messageDiv.className = 'text-blue-600 p-2 rounded-md bg-blue-50'; // Added some bg/padding
+
+            const result = await attendanceLogic.clearAllAbsencesInView(year, month, day);
+
+            if (result.success) {
+                messageDiv.textContent = `${periodString}의 ${result.countCleared}건의 결석 기록이 삭제되었습니다 (출석으로 처리됨).`;
+                messageDiv.className = 'text-green-600 p-2 rounded-md bg-green-50';
+                // Refresh the current view
+                if (currentAttendanceViewMode === 'daily') {
+                    loadAndRenderSingleDayAttendance(year, month, day);
+                } else {
+                    loadAndRenderMonthlyAttendance(year, month);
+                }
+            } else {
+                throw result.error || new Error('일괄 출석 처리 중 알 수 없는 오류 발생');
+            }
+        } catch (error) {
+            console.error('Error resetting all absences:', error);
+            messageDiv.textContent = `오류: ${error.message || '일괄 처리 중 오류가 발생했습니다.'}`;
+            messageDiv.className = 'text-red-600 p-2 rounded-md bg-red-50';
+        }
     }
 }
 
