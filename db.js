@@ -61,23 +61,6 @@ export async function addParticipant(participant) {
     });
 }
 
-export async function deleteAllParticipants() {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([PARTICIPANTS_STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(PARTICIPANTS_STORE_NAME);
-        const request = store.clear(); // Clears all records from the store
-
-        request.onsuccess = () => {
-            resolve();
-        };
-        request.onerror = (event) => {
-            console.error('Error deleting all participants:', event.target.error);
-            reject(event.target.error);
-        };
-    });
-}
-
 export async function getAllParticipants() {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -142,22 +125,6 @@ export async function deleteMultipleParticipants(ids) {
     });
 }
 
-export async function deleteAllParticipants() {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([PARTICIPANTS_STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(PARTICIPANTS_STORE_NAME);
-        const request = store.clear(); // Clears all records from the store
-
-        request.onsuccess = () => {
-            resolve();
-        };
-        request.onerror = (event) => {
-            console.error('Error deleting all participants:', event.target.error);
-            reject(event.target.error);
-        };
-    });
-}
 
 export async function saveSchedule(year, month, scheduleData) {
     const db = await openDB();
