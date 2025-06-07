@@ -5,7 +5,7 @@ let attendanceFilterToggle;
 let currentAttendanceFilter = 'all'; // Possible values: 'all', 'absent'
 let currentAttendanceViewMode = 'daily'; // 'daily' or 'monthly'
 let isAttendanceViewInitialized = false;
-let allParticipantsMap = new Map()리
+let allParticipantsMap = new Map()
 
 const viewContainerId = 'attendanceView';
 let yearSelect, monthSelect, daySelect, loadButton;
