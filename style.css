@@ -141,7 +141,6 @@ label {
     table-layout: auto; /* Changed from fixed */
     /* min-width: 800px; /* Removed or commented out */
 }
-#schedule-calendar-display th, 
 #schedule-calendar-display td {
     text-align: center;
     vertical-align: top;
@@ -150,8 +149,14 @@ label {
     border: 1px solid #e2e8f0; /* slate-200 */
 }
 #schedule-calendar-display th {
+    text-align: center;
+    vertical-align: top;
+    font-size: 0.875rem;
+    border: 1px solid #e2e8f0; /* slate-200 */
     background-color: #f1f5f9; /* slate-100 */
     font-weight: 600;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
 }
 
 #schedule-calendar-display .calendar-day-number {

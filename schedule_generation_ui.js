@@ -31,8 +31,28 @@ export function initScheduleGenerationView(viewElementId) {
     if (viewExistingScheduleBtn) {
         viewExistingScheduleBtn.addEventListener('click', handleViewExistingSchedule);
     }
+
+    // Create and add the "Reset Current Month Schedule" button
+    const resetBtn = document.createElement('button');
+    resetBtn.id = 'reset-current-month-schedule-btn';
+    resetBtn.className = 'btn btn-warning ml-0 sm:ml-2 mt-2 sm:mt-0'; // Adjusted margin for responsiveness
+    resetBtn.innerHTML = '<i data-lucide="rotate-ccw" class="mr-2 h-4 w-4"></i>이번 달 일정 초기화';
+
+    // Assuming generateBtn and viewExistingScheduleBtn are in the same parent container
+    // And that container is the one that should hold the reset button.
+    // The prompt mentions a div with class "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end"
+    // The yearInput, monthInput, viewExistingScheduleBtn, generateBtn are children of this div.
+    // So, we append the new button to this parent.
+    if (generateBtn.parentNode) {
+         // Adding to the main button container, which seems to be generateBtn.parentNode
+        generateBtn.parentNode.appendChild(resetBtn);
+    } else {
+        console.error("Could not find parent node of generateBtn to append reset button.");
+    }
+
+    resetBtn.addEventListener('click', handleResetCurrentMonthSchedule);
     
-    lucide.createIcons();
+    lucide.createIcons(); // Ensure all icons including the new one are rendered
     loadInitialScheduleForCurrentDate();
 }
 
@@ -226,5 +246,30 @@ function displayMessage(message, type = 'info') {
         default:
             messageDiv.classList.add('bg-sky-100', 'text-sky-700');
             break;
+    }
+}
+
+async function handleResetCurrentMonthSchedule() {
+    const year = parseInt(yearInput.value);
+    const month = parseInt(monthInput.value);
+
+    if (!year || year < 2000 || year > 2100) {
+        displayMessage('유효한 년도를 입력하세요 (2000-2100).', 'error');
+        return;
+    }
+    if (!month || month < 1 || month > 12) {
+        displayMessage('유효한 월을 선택하세요.', 'error');
+        return;
+    }
+
+    if (confirm(`${year}년 ${month}월의 모든 생성된 일정을 정말로 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
+        try {
+            await db.saveSchedule(year, month, []); // Save an empty array to clear the schedule
+            renderCalendar(year, month, null); // Re-render the calendar, which will show as empty
+            displayMessage(`${year}년 ${month}월 일정이 성공적으로 초기화되었습니다.`, 'success');
+        } catch (error) {
+            console.error('Error resetting schedule:', error);
+            displayMessage('일정 초기화 중 오류가 발생했습니다.', 'error');
+        }
     }
 }
