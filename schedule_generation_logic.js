@@ -256,8 +256,8 @@ export async function generateSchedule(year, month) {
                         if (!candidate1 || dailyAssignments.has(candidate1.id)) continue; // Already checked in filter, but good for safety
                         p1Obj = candidate1;
 
-                        for (let j = i + 1; j < sortedTargetPool.length; j++) {
-                            const candidate2 = sortedTargetPool[(effectiveCurrentIndex + j) % sortedTargetPool.length];
+                        for (let p2LoopIdx = i + 1; p2LoopIdx < sortedTargetPool.length; p2LoopIdx++) {
+                            const candidate2 = sortedTargetPool[(effectiveCurrentIndex + p2LoopIdx) % sortedTargetPool.length];
                             if (!candidate2 || dailyAssignments.has(candidate2.id) || candidate2.id === p1Obj.id) continue;
                             if (candidate2.gender === p1Obj.gender) {
                                 p2Obj = candidate2;
@@ -266,7 +266,7 @@ export async function generateSchedule(year, month) {
                         }
                         if (p1Obj && p2Obj) {
                             assignedPair = [p1Obj.id, p2Obj.id];
-                            effectiveCurrentIndex = (effectiveCurrentIndex + Math.max(i,j) + 1); // Advance index past used pair
+                            effectiveCurrentIndex = (effectiveCurrentIndex + Math.max(i, p2LoopIdx) + 1); // Advance index past used pair
                              if (slotInfo.categoryKey === 'elementary_6am') scheduleIndices[sequentialStateKeys.elementary_6am] = effectiveCurrentIndex;
                              else scheduleIndices[sequentialStateKeys.middle_7am] = effectiveCurrentIndex;
                             break;
