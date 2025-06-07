@@ -32,27 +32,53 @@ export function initScheduleGenerationView(viewElementId) {
         viewExistingScheduleBtn.addEventListener('click', handleViewExistingSchedule);
     }
 
-    // Create and add the "Reset Current Month Schedule" button
-    const resetBtn = document.createElement('button');
-    resetBtn.id = 'reset-current-month-schedule-btn';
-    resetBtn.className = 'btn btn-warning ml-0 sm:ml-2 mt-2 sm:mt-0'; // Adjusted margin for responsiveness
-    resetBtn.innerHTML = '<i data-lucide="rotate-ccw" class="mr-2 h-4 w-4"></i>이번 달 일정 초기화';
-
-    // Assuming generateBtn and viewExistingScheduleBtn are in the same parent container
-    // And that container is the one that should hold the reset button.
-    // The prompt mentions a div with class "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end"
-    // The yearInput, monthInput, viewExistingScheduleBtn, generateBtn are children of this div.
-    // So, we append the new button to this parent.
-    if (generateBtn.parentNode) {
-         // Adding to the main button container, which seems to be generateBtn.parentNode
-        generateBtn.parentNode.appendChild(resetBtn);
-    } else {
-        console.error("Could not find parent node of generateBtn to append reset button.");
+    // Check if the "Reset Current Month Schedule" button already exists
+    let resetBtn = view.querySelector('#reset-current-month-schedule-btn');
+    if (!resetBtn) { // If the button doesn't exist, create it
+        resetBtn = document.createElement('button');
+        resetBtn.id = 'reset-current-month-schedule-btn';
+        // Add event listener only when creating the button
+        resetBtn.addEventListener('click', handleResetCurrentMonthSchedule);
     }
+    // Update button design (even if it already exists, in case of code updates)
+    resetBtn.innerHTML = '<i data-lucide="trash-2" class="h-5 w-5"></i>';
+    resetBtn.title = '이번 달 일정 초기화';
+    resetBtn.className = 'btn btn-icon btn-warning p-2'; // Adjusted for icon-only button
 
-    resetBtn.addEventListener('click', handleResetCurrentMonthSchedule);
+    // Position the button next to the H2 title
+    const sectionTitleH2 = view.querySelector('h2.text-xl.font-semibold');
+    if (sectionTitleH2) {
+        // Check if the new structure (titleContainer) is already applied
+        if (sectionTitleH2.parentNode.id !== 'schedule-title-container') {
+            const titleContainer = document.createElement('div');
+            titleContainer.id = 'schedule-title-container'; // Add an ID for future reference
+            titleContainer.className = 'flex justify-between items-center mb-4';
+
+            // Move H2 into the new container
+            sectionTitleH2.parentNode.insertBefore(titleContainer, sectionTitleH2);
+            titleContainer.appendChild(sectionTitleH2);
+
+            // If H2 had mb-4, remove it as titleContainer now has it
+            sectionTitleH2.classList.remove('mb-4');
+
+            titleContainer.appendChild(resetBtn);
+        } else {
+            // If titleContainer already exists, ensure resetBtn is inside it (e.g., if button was re-created but container exists)
+            if (resetBtn.parentNode !== sectionTitleH2.parentNode) {
+                sectionTitleH2.parentNode.appendChild(resetBtn);
+            }
+        }
+    } else {
+        // Fallback: if H2 not found, add to generateBtn's parent as before, but this is less ideal
+        console.warn("Section title H2 not found. Appending reset button to generateBtn's parent as a fallback.");
+        if (generateBtn.parentNode && resetBtn.parentNode !== generateBtn.parentNode) {
+             generateBtn.parentNode.appendChild(resetBtn);
+        } else if (!generateBtn.parentNode) {
+            console.error("Could not find parent node of generateBtn to append reset button.");
+        }
+    }
     
-    lucide.createIcons(); // Ensure all icons including the new one are rendered
+    lucide.createIcons(); // Ensure all icons are rendered
     loadInitialScheduleForCurrentDate();
 }
 
