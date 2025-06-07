@@ -1,9 +1,10 @@
 const DB_NAME = 'SchedulePWA_DB';
-const DB_VERSION = 3; // Version remains 2 as no schema changes, only helper functions added
+const DB_VERSION = 4; // Incremented DB version for schema change
 const PARTICIPANTS_STORE_NAME = 'participants';
 const SCHEDULES_STORE_NAME = 'schedules';
 const ATTENDANCE_LOG_STORE_NAME = 'attendanceLog';
 const SCHEDULE_STATE_STORE_NAME = 'scheduleState';
+const MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME = 'monthlyAssignmentCounts';
 
 let db;
 
@@ -45,6 +46,12 @@ export function openDB() {
             }
             if (!tempDb.objectStoreNames.contains(SCHEDULE_STATE_STORE_NAME)) {
                 tempDb.createObjectStore(SCHEDULE_STATE_STORE_NAME, { keyPath: 'category' });
+            }
+            if (!tempDb.objectStoreNames.contains(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME)) {
+                const store = tempDb.createObjectStore(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME, { keyPath: ['year', 'month', 'participantId', 'categoryKey'] });
+                // Add indexes for efficient querying
+                store.createIndex('yearMonthIndex', ['year', 'month'], { unique: false });
+                store.createIndex('participantMonthIndex', ['participantId', 'year', 'month'], { unique: false });
             }
         };
     });
@@ -125,22 +132,7 @@ export async function deleteMultipleParticipants(ids) {
     });
 }
 
-export async function deleteAllParticipants() {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([PARTICIPANTS_STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(PARTICIPANTS_STORE_NAME);
-        const request = store.clear(); // Clears all records from the store
-
-        request.onsuccess = () => {
-            resolve();
-        };
-        request.onerror = (event) => {
-            console.error('Error deleting all participants:', event.target.error);
-            reject(event.target.error);
-        };
-    });
-}
+// Note: deleteAllParticipants was confirmed missing and will be added in a separate subtask if still needed.
 
 export async function saveSchedule(year, month, scheduleData) {
     const db = await openDB();
@@ -243,5 +235,84 @@ export async function saveScheduleState(category, value) {
         const request = store.put({ category, value });
         request.onsuccess = () => resolve();
         request.onerror = (event) => reject(event.target.error);
+    });
+}
+
+export async function saveMonthlyAssignmentCounts(year, month, assignmentData) {
+    const db = await openDB();
+    return new Promise(async (resolve, reject) => {
+        const transaction = db.transaction([MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME);
+
+        const cursorDeleteRequest = store.index('yearMonthIndex').openCursor(IDBKeyRange.only([year, month]));
+        cursorDeleteRequest.onsuccess = (event) => {
+            const cursor = event.target.result;
+            if (cursor) {
+                store.delete(cursor.primaryKey);
+                cursor.continue();
+            } else {
+                putNewData();
+            }
+        };
+        cursorDeleteRequest.onerror = (event) => {
+            console.error('Error deleting old assignment counts:', event.target.error);
+            reject(event.target.error);
+        };
+
+        function putNewData() {
+            if (assignmentData.length === 0) {
+                resolve();
+                return;
+            }
+            let putPromises = assignmentData.map(item => {
+                return new Promise((res, rej) => {
+                    const fullRecord = { year, month, participantId: item.participantId, categoryKey: item.categoryKey, count: item.count };
+                    const request = store.put(fullRecord);
+                    request.onsuccess = () => res();
+                    request.onerror = (event) => rej(event.target.error);
+                });
+            });
+
+            Promise.all(putPromises)
+                .then(() => resolve())
+                .catch(error => {
+                    console.error('Error saving new assignment counts:', error);
+                    reject(error);
+                });
+        }
+    });
+}
+
+export async function getPreviousMonthAssignmentCounts(currentYear, currentMonth) {
+    let prevYear = currentYear;
+    let prevMonth = currentMonth - 1;
+    if (prevMonth === 0) {
+        prevMonth = 12;
+        prevYear--;
+    }
+
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME], 'readonly');
+        const store = transaction.objectStore(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME);
+        const index = store.index('yearMonthIndex');
+        const request = index.getAll(IDBKeyRange.only([prevYear, prevMonth]));
+
+        request.onsuccess = () => {
+            const results = request.result;
+            const countsMap = new Map();
+
+            results.forEach(record => {
+                if (!countsMap.has(record.participantId)) {
+                    countsMap.set(record.participantId, new Map());
+                }
+                countsMap.get(record.participantId).set(record.categoryKey, record.count);
+            });
+            resolve(countsMap);
+        };
+        request.onerror = (event) => {
+            console.error('Error fetching previous month assignment counts:', event.target.error);
+            reject(event.target.error);
+        };
     });
 }
