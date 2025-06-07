@@ -1,0 +1,208 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    margin: 0;
+    line-height: 1.6;
+}
+
+.nav-link.active {
+    background-color: #0284c7; /* sky-600 */
+    color: white;
+    font-weight: bold;
+}
+
+.app-view {
+    animation: fadeIn 0.5s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Basic table styling */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+
+th, td {
+    padding: 0.75rem;
+    text-align: left;
+    border: 1px solid #e2e8f0; /* slate-200 */
+}
+
+th {
+    background-color: #f1f5f9; /* slate-100 */
+    font-weight: 600;
+}
+
+tr:hover {
+    background-color: #f8fafc; /* slate-50 */
+}
+
+/* Modal Styles */
+.modal {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.3s ease, visibility 0.3s ease;
+}
+
+.modal.active {
+    opacity: 1;
+    visibility: visible;
+}
+
+.modal-content {
+    background-color: white;
+    padding: 2rem;
+    border-radius: 0.5rem;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    width: 90%;
+    max-width: 500px;
+}
+
+/* Utility classes that might be helpful beyond Tailwind */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    font-weight: 500;
+    transition: background-color 0.2s ease-in-out;
+    cursor: pointer;
+    border: 1px solid transparent;
+}
+
+.btn-primary {
+    background-color: #0ea5e9; /* sky-500 */
+    color: white;
+}
+.btn-primary:hover {
+    background-color: #0284c7; /* sky-600 */
+}
+.btn-primary:disabled {
+    background-color: #7dd3fc; /* sky-300 */
+    cursor: not-allowed;
+}
+
+.btn-danger {
+    background-color: #ef4444; /* red-500 */
+    color: white;
+}
+.btn-danger:hover {
+    background-color: #dc2626; /* red-600 */
+}
+
+.btn-secondary {
+    background-color: #64748b; /* slate-500 */
+    color: white;
+}
+.btn-secondary:hover {
+    background-color: #475569; /* slate-600 */
+}
+
+input[type="text"], input[type="number"], input[type="file"], select {
+    padding: 0.5rem;
+    border: 1px solid #cbd5e1; /* slate-300 */
+    border-radius: 0.375rem;
+    width: 100%;
+}
+input:focus, select:focus {
+    outline: none;
+    border-color: #0ea5e9; /* sky-500 */
+    box-shadow: 0 0 0 2px rgba(14, 165, 233, 0.2);
+}
+
+.form-group {
+    margin-bottom: 1rem;
+}
+
+label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-weight: 500;
+}
+
+/* Schedule Generation Calendar Styles (Preserved) */
+#schedule-calendar-display table {
+    width: 100%;
+    table-layout: auto; /* Changed from fixed */
+    /* min-width: 800px; /* Removed or commented out */
+}
+#schedule-calendar-display th, 
+#schedule-calendar-display td {
+    text-align: center;
+    vertical-align: top;
+    height: 120px; 
+    font-size: 0.875rem;
+    border: 1px solid #e2e8f0; /* slate-200 */
+}
+#schedule-calendar-display th {
+    background-color: #f1f5f9; /* slate-100 */
+    font-weight: 600;
+}
+
+#schedule-calendar-display .calendar-day-number {
+    font-weight: bold;
+    display: block;
+    margin-bottom: 0.25rem;
+    text-align: left;
+    padding: 0.25rem;
+    background-color: #f8fafc; /* slate-50 */
+    border-bottom: 1px solid #e2e8f0; /* slate-200 */
+}
+#schedule-calendar-display .other-month {
+    background-color: #f8fafc; /* slate-50 */
+    color: #94a3b8; /* slate-400 */
+}
+#schedule-calendar-display .weekend {
+    background-color: #eff6ff; /* blue-50 */
+}
+#schedule-calendar-display .today {
+    background-color: #e0f2fe; /* sky-100 */
+    border: 1px solid #0ea5e9; /* sky-500 */
+}
+#schedule-calendar-display .schedule-entry {
+    font-size: 0.75rem;
+    padding: 0.1rem 0.2rem;
+    margin-bottom: 0.1rem;
+    border-radius: 0.25rem;
+    background-color: #f0f9ff; /* sky-50 */
+    border: 1px solid #bae6fd; /* sky-200 */
+    display: block;
+    cursor: default;
+}
+#schedule-calendar-display .schedule-entry strong { /* For fixed absentees */
+    font-weight: 900;
+    color: #0369a1; /* sky-700 */
+}
+#schedule-calendar-display .schedule-entry span {
+    display: block;
+}
+
+/* Styles for #share-calendar-container elements are now handled by TailwindCSS in share_ui.js */
+/* Removed specific CSS rules for:
+   #share-calendar-container table, 
+   #share-calendar-container th, #share-calendar-container td,
+   #share-calendar-container .calendar-day-number,
+   #share-calendar-container .other-month,
+   #share-calendar-container .weekend,
+   #share-calendar-container .today,
+   #share-calendar-container .schedule-entry,
+   #share-calendar-container .schedule-entry .assigned-name,
+   #share-calendar-container .schedule-entry strong,
+   #share-calendar-container .schedule-entry span,
+   #share-calendar-container .empty-day
+*/
