@@ -12,9 +12,6 @@ const TIME_SLOT_CONFIG = {
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function getWeekOfMonth(date) {
-  // Returns the 0-indexed week of the month.
-  // The first day of the month (e.g., 1st) is in week 0.
-  // 8th is in week 1, 15th in week 2, etc.
   return Math.floor((date.getDate() - 1) / 7);
 }
 
@@ -24,6 +21,66 @@ async function getParticipantsMap(participantsList) {
     return map;
 }
 
+// Helper function defined outside generateSchedule for clarity or can be inside
+function getEnhancedParticipantData(participant, slotInfo, prevMonthAssignmentCounts, currentMonthAssignmentCounts, coreCategoriesMap, calculatedPrevTotalCounts) {
+    const participantId = participant.id;
+    const prevCountsForParticipant = prevMonthAssignmentCounts.get(participantId) || new Map();
+
+    let prevCategoryCount = 0;
+    if (slotInfo.categoryKey) {
+        prevCategoryCount = prevCountsForParticipant.get(slotInfo.categoryKey) || 0;
+    }
+
+    const prevTotalCount = calculatedPrevTotalCounts.get(participantId) || 0; // Use pre-calculated total
+    const currentCategoryCount = currentMonthAssignmentCounts.get(participantId)?.get(slotInfo.categoryKey) || 0;
+
+    let crossPreferenceScore = 0;
+    const participantTypeInitial = participant.type === '초등' ? 'elementary' : 'middle';
+    const coreCategoryForType = coreCategoriesMap[participantTypeInitial];
+
+    if (slotInfo.categoryKey === coreCategoryForType) {
+        if ((prevCountsForParticipant.get(coreCategoryForType) || 0) > 0) {
+            crossPreferenceScore = -1;
+        }
+    } else {
+        if ((prevCountsForParticipant.get(coreCategoryForType) || 0) > 0) {
+            crossPreferenceScore = 1;
+        }
+    }
+
+    return {
+        id: participantId,
+        gender: participant.gender,
+        obj: participant,
+        prevCategoryCount,
+        prevTotalCount,
+        currentCategoryCount,
+        crossPreferenceScore
+    };
+}
+
+function compareEnhancedParticipants(aData, bData) {
+    // 1. Previous category count (lower is better)
+    if (aData.prevCategoryCount !== bData.prevCategoryCount) {
+        return aData.prevCategoryCount - bData.prevCategoryCount;
+    }
+    // 2. Cross-preference score (higher is better)
+    if (aData.crossPreferenceScore !== bData.crossPreferenceScore) {
+        return bData.crossPreferenceScore - aData.crossPreferenceScore;
+    }
+    // 3. Previous total count (lower is better)
+    if (aData.prevTotalCount !== bData.prevTotalCount) {
+        return aData.prevTotalCount - bData.prevTotalCount;
+    }
+    // 4. Current category count for this month (lower is better)
+    if (aData.currentCategoryCount !== bData.currentCategoryCount) {
+        return aData.currentCategoryCount - bData.currentCategoryCount;
+    }
+    // 5. ID for tie-breaking (ensures stable sort for sequential logic)
+    return aData.id - bData.id;
+}
+
+
 export async function generateSchedule(year, month) {
     const participants = await db.getAllParticipants();
     if (!participants || participants.length === 0) {
@@ -31,31 +88,63 @@ export async function generateSchedule(year, month) {
     }
 
     for (const p of participants) {
-        if (typeof p.gender === 'undefined') {
-
-
-
-            if (!p.gender) throw new Error(`Participant ${p.name} (ID: ${p.id}) is missing gender information.`);
+        if (typeof p.gender === 'undefined' || !p.gender) {
+             throw new Error(`Participant ${p.name} (ID: ${p.id}) is missing gender information.`);
         }
     }
     const participantsMap = await getParticipantsMap(participants);
 
-    const prevMonthDate = new Date(year, month - 1, 0);
-    const prevYear = prevMonthDate.getFullYear();
-    const prevMonth = prevMonthDate.getMonth() + 1;
-    const prevMonthAbsenteesList = await db.getAbsenteesForMonth(prevYear, prevMonth);
-    const prevMonthAbsentees = new Set(prevMonthAbsenteesList);
+    // Load previous month's assignment counts
+    const prevMonthAssignmentCounts = await db.getPreviousMonthAssignmentCounts(year, month);
+    const CORE_CATEGORIES = {
+        elementary: 'elementary_6am', // Assuming this is the core sequential for elementary
+        middle: 'middle_7am'         // Assuming this is the core sequential for middle
+    };
+
+    // Helper to calculate total previous counts for a participant
+    const calculatePrevTotalCount = (participantId) => {
+        let total = 0;
+        const counts = prevMonthAssignmentCounts.get(participantId);
+        if (counts) {
+            for (const count of counts.values()) {
+                total += count;
+            }
+        }
+        return total;
+    };
+
+    const calculatedPrevTotalCounts = new Map();
+    participants.forEach(p => {
+        calculatedPrevTotalCounts.set(p.id, calculatePrevTotalCount(p.id));
+    });
+
 
     let scheduleData = [];
     const daysInMonth = new Date(year, month, 0).getDate();
 
     const assignmentCounts = new Map(); 
-    participants.forEach(p => assignmentCounts.set(p.id, { total: 0, random_elementary: 0, random_middle: 0 }));
+    const uniqueCategoryKeys = new Set();
+    Object.values(TIME_SLOT_CONFIG).flat().forEach(slot => {
+        if (slot.categoryKey) uniqueCategoryKeys.add(slot.categoryKey);
+    });
+    // Add known fallback keys if they are distinct categories to be tracked
+    uniqueCategoryKeys.add('elementary_random_fallback');
+    uniqueCategoryKeys.add('middle_random_fallback');
 
-    const participantWeeklyAssignments = new Map(); // participantId -> Set of week numbers
+
+    participants.forEach(p => {
+        const categoryMap = new Map();
+        uniqueCategoryKeys.forEach(key => categoryMap.set(key, 0));
+        categoryMap.set('total', 0);
+        assignmentCounts.set(p.id, categoryMap);
+    });
+
+    const participantWeeklyAssignments = new Map();
     participants.forEach(p => participantWeeklyAssignments.set(p.id, new Set()));
     
     const fixedAbsenteeAssignments = new Map(); 
+    const prevMonthAbsenteesList = await db.getAbsenteesForMonth(new Date(year, month - 1, 0).getFullYear(), new Date(year, month - 1, 0).getMonth() + 1);
+    const prevMonthAbsentees = new Set(prevMonthAbsenteesList);
     prevMonthAbsentees.forEach(id => fixedAbsenteeAssignments.set(id, 0));
 
     const sequentialStateKeys = {
@@ -84,244 +173,182 @@ export async function generateSchedule(year, month) {
 
         for (const slotInfo of slotsForDay) {
             let assignedPair = [];
-            let fixedAssigneeId = null; // New variable
+            let fixedAssigneeId = null;
 
-            const targetPool = slotInfo.type === 'elementary' ? elementaryParticipants : middleParticipants;
-            if (targetPool.length < 2) continue;
+            const originalTargetPool = slotInfo.type === 'elementary' ? elementaryParticipants : middleParticipants;
+            if (originalTargetPool.length < 2) continue;
+
+            const currentWeekForSlot = getWeekOfMonth(currentDate);
 
             if (slotInfo.sequential) {
-                const absenteesForThisSlotType = targetPool.filter(p => prevMonthAbsentees.has(p.id) && (fixedAbsenteeAssignments.get(p.id) || 0) < 2);
+                const absenteesForThisSlotType = originalTargetPool.filter(p => prevMonthAbsentees.has(p.id) && (fixedAbsenteeAssignments.get(p.id) || 0) < 2);
                 
-                for (const absenteeObj of absenteesForThisSlotType) {
+                for (const absentee of absenteesForThisSlotType) {
                     if (assignedPair.length === 2) break;
-                    if (dailyAssignments.has(absenteeObj.id)) continue;
+                    if (dailyAssignments.has(absentee.id)) continue;
 
-                    // New weekly assignment eligibility check for absenteeObj
-                    const absenteeCounts = assignmentCounts.get(absenteeObj.id);
-                    const absenteeWeeklyAssignments = participantWeeklyAssignments.get(absenteeObj.id);
-                    const currentWeekForSlot = getWeekOfMonth(currentDate);
-                    if (absenteeCounts.total >= 2 && absenteeWeeklyAssignments.has(currentWeekForSlot)) {
-                        continue; // Skip this absenteeObj if ineligible
+                    const absenteeCountsMap = assignmentCounts.get(absentee.id);
+                    const absenteeWeeklyAssignments = participantWeeklyAssignments.get(absentee.id);
+                    if (absenteeCountsMap.get('total') >= 2 && absenteeWeeklyAssignments.has(currentWeekForSlot)) {
+                        continue;
                     }
+                    const absenteeData = getEnhancedParticipantData(absentee, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts);
 
-                    // Filter for eligible partners for the absenteeObj
-                    // const currentWeekForSlot = getWeekOfMonth(currentDate); // Already available from absenteeObj check
-                    const eligiblePartnersPool = targetPool.filter(p => {
-                        if (p.id === absenteeObj.id || dailyAssignments.has(p.id) || p.gender !== absenteeObj.gender) return false;
-                        const pCounts = assignmentCounts.get(p.id);
+
+                    const eligiblePartnersPool = originalTargetPool.filter(p => {
+                        if (p.id === absentee.id || dailyAssignments.has(p.id) || p.gender !== absentee.gender) return false;
+                        const pCountsMap = assignmentCounts.get(p.id);
                         const pWeeklyAssignments = participantWeeklyAssignments.get(p.id);
-                        if (pCounts.total >= 2 && pWeeklyAssignments.has(currentWeekForSlot)) {
-                            return false; // Ineligible due to weekly rule
-                        }
+                        if (pCountsMap.get('total') >= 2 && pWeeklyAssignments.has(currentWeekForSlot)) return false;
+
+                        // Enhanced data for partner candidate for crossPreference check (simple version)
+                        // This could be more deeply integrated with the full sorting if needed, but here we primarily check weekly and daily limits
+                        const pDataForCheck = getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts);
+                        // Example: if absentee is core and partner is core, and both have high prev counts, maybe skip.
+                        // For now, the main filter is weekly and daily. Cross-preference is handled by sorting later.
                         return true;
                     });
 
-                    let partnerObj = eligiblePartnersPool.find(p =>
-                        (!prevMonthAbsentees.has(p.id) || (fixedAbsenteeAssignments.get(p.id) || 0) >= 2)
-                    );
-                    if (!partnerObj) { // If no such preferred partner, try any eligible partner from the filtered pool
-                        partnerObj = eligiblePartnersPool.find(p => true);
+                    const enhancedEligiblePartners = eligiblePartnersPool
+                        .map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts))
+                        .sort(compareEnhancedParticipants);
+
+                    let partnerData = enhancedEligiblePartners.find(pd => {
+                        const p = pd.obj;
+                        return (!prevMonthAbsentees.has(p.id) || (fixedAbsenteeAssignments.get(p.id) || 0) >= 2);
+                    });
+                    if (!partnerData) {
+                        partnerData = enhancedEligiblePartners[0]; // Take the best available if no non-absentee preferred
                     }
 
-                    if (partnerObj) {
-                        assignedPair = [absenteeObj.id, partnerObj.id];
-                        fixedAbsenteeAssignments.set(absenteeObj.id, (fixedAbsenteeAssignments.get(absenteeObj.id) || 0) + 1);
-                        // The following lines that incremented for partnerObj are removed/commented out:
-                        // if(prevMonthAbsentees.has(partnerObj.id) && (fixedAbsenteeAssignments.get(partnerObj.id) || 0) < 2){
-                        //      fixedAbsenteeAssignments.set(partnerObj.id, (fixedAbsenteeAssignments.get(partnerObj.id) || 0) + 1);
-                        // }
-                        fixedAssigneeId = absenteeObj.id; // Set fixedAssigneeId
-                        // fixedAssignment = true; // Removed
+                    if (partnerData) {
+                        const partnerObj = partnerData.obj;
+                        assignedPair = [absentee.id, partnerObj.id];
+                        fixedAbsenteeAssignments.set(absentee.id, (fixedAbsenteeAssignments.get(absentee.id) || 0) + 1);
+                        fixedAssigneeId = absentee.id;
                         break; 
                     }
                 }
                 
                 if (assignedPair.length < 2) {
+                    const filteredTargetPool = originalTargetPool.filter(p => {
+                        const isPrevAbsentee = prevMonthAbsentees.has(p.id);
+                        const absenteeFixedCount = fixedAbsenteeAssignments.get(p.id) || 0;
+                        if (isPrevAbsentee && absenteeFixedCount >= 2) return false;
+
+                        const pCountsMap = assignmentCounts.get(p.id);
+                        const pWeeklyAssignments = participantWeeklyAssignments.get(p.id);
+                        if (pCountsMap.get('total') >= 2 && pWeeklyAssignments.has(currentWeekForSlot)) return false;
+
+                        return !dailyAssignments.has(p.id); // Ensure not already assigned today
+                    });
+
+                    const enhancedTargetPool = filteredTargetPool.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts));
+                    enhancedTargetPool.sort(compareEnhancedParticipants);
+                    const sortedTargetPool = enhancedTargetPool.map(data => data.obj);
+
                     let baseCurrentIndex = slotInfo.categoryKey === 'elementary_6am' ? scheduleIndices[sequentialStateKeys.elementary_6am] : scheduleIndices[sequentialStateKeys.middle_7am];
                     let effectiveCurrentIndex = baseCurrentIndex;
                     let p1Obj = null, p2Obj = null;
-                    let p1ScannedCountTotal = 0; // Total items scanned from baseCurrentIndex to find p1 and then p2
 
-                    const maxSearchAttempts = targetPool.length + 1; // Iterate through pool once for p1
-                    for (let p1Attempt = 0; p1Attempt < maxSearchAttempts && assignedPair.length < 2; p1Attempt++) {
-                        p1Obj = null;
-                        let p1ScannedThisTry = 0;
-                        for (let i = 0; i < targetPool.length; i++) {
-                            p1ScannedThisTry++;
-                            const candidate = targetPool[(effectiveCurrentIndex + i) % targetPool.length];
-                            if (!candidate || dailyAssignments.has(candidate.id)) continue;
-                            
-                            const isPrevAbsentee = prevMonthAbsentees.has(candidate.id);
-                            const absenteeFixedCount = fixedAbsenteeAssignments.get(candidate.id) || 0;
-                            if (isPrevAbsentee && absenteeFixedCount >= 2) continue;
+                    for (let i = 0; i < sortedTargetPool.length; i++) {
+                        const candidate1 = sortedTargetPool[(effectiveCurrentIndex + i) % sortedTargetPool.length];
+                        if (!candidate1 || dailyAssignments.has(candidate1.id)) continue; // Already checked in filter, but good for safety
+                        p1Obj = candidate1;
 
-                            // New weekly assignment eligibility check for p1 candidate
-                            const p1CandidateCounts = assignmentCounts.get(candidate.id);
-                            const p1CandidateWeeklyAssignments = participantWeeklyAssignments.get(candidate.id);
-                            const currentWeekForSlot = getWeekOfMonth(currentDate); // Ensure currentDate is in scope
-                            if (p1CandidateCounts.total >= 2 && p1CandidateWeeklyAssignments.has(currentWeekForSlot)) {
-                                continue; // Skip this candidate for p1
-                            }
-
-                            p1Obj = candidate;
-                            break;
-                        }
-
-                        if (!p1Obj) break; // No valid p1 found in the rest of the pool
-
-                        p2Obj = null;
-                        let p2ScannedThisTry = 0;
-                        for (let i = 1; i < targetPool.length; i++) { // Start search for p2 after p1's relative position
-                            p2ScannedThisTry++;
-                            const p2CandidateIndex = (effectiveCurrentIndex + p1ScannedThisTry -1 + i) % targetPool.length;
-                            const candidate = targetPool[p2CandidateIndex];
-
-                            if (!candidate || dailyAssignments.has(candidate.id) || candidate.id === p1Obj.id) continue;
-                            
-                            const isPrevAbsentee = prevMonthAbsentees.has(candidate.id);
-                            const absenteeFixedCount = fixedAbsenteeAssignments.get(candidate.id) || 0;
-                            if (isPrevAbsentee && absenteeFixedCount >= 2) continue;
-
-                            // New weekly assignment eligibility check for p2 candidate
-                            const p2CandidateCounts = assignmentCounts.get(candidate.id);
-                            const p2CandidateWeeklyAssignments = participantWeeklyAssignments.get(candidate.id);
-                            const currentWeekForSlot = getWeekOfMonth(currentDate); // Ensure currentDate is in scope
-                            if (p2CandidateCounts.total >= 2 && p2CandidateWeeklyAssignments.has(currentWeekForSlot)) {
-                                continue; // Skip this candidate for p2
-                            }
-
-                            if (candidate.gender === p1Obj.gender) { // SAME GENDER CHECK
-                                p2Obj = candidate;
+                        for (let j = i + 1; j < sortedTargetPool.length; j++) {
+                            const candidate2 = sortedTargetPool[(effectiveCurrentIndex + j) % sortedTargetPool.length];
+                            if (!candidate2 || dailyAssignments.has(candidate2.id) || candidate2.id === p1Obj.id) continue;
+                            if (candidate2.gender === p1Obj.gender) {
+                                p2Obj = candidate2;
                                 break;
                             }
                         }
-                        
                         if (p1Obj && p2Obj) {
                             assignedPair = [p1Obj.id, p2Obj.id];
-                            p1ScannedCountTotal = p1ScannedThisTry + p2ScannedThisTry;
-                            [p1Obj, p2Obj].forEach(person => {
-                                if (prevMonthAbsentees.has(person.id) && (fixedAbsenteeAssignments.get(person.id) || 0) < 2) {
-                                    fixedAbsenteeAssignments.set(person.id, (fixedAbsenteeAssignments.get(person.id) || 0) + 1);
-                                }
-                            });
-                            effectiveCurrentIndex += p1ScannedCountTotal;
-                            if (slotInfo.categoryKey === 'elementary_6am') scheduleIndices[sequentialStateKeys.elementary_6am] = effectiveCurrentIndex;
-                            else scheduleIndices[sequentialStateKeys.middle_7am] = effectiveCurrentIndex;
-                            break; 
-                        } else if (p1Obj) { // p1 found, but no p2. Advance effectiveCurrentIndex past p1.
-                            effectiveCurrentIndex += p1ScannedThisTry;
-                            p1ScannedCountTotal = 0; // Reset for next p1 search
+                            effectiveCurrentIndex = (effectiveCurrentIndex + Math.max(i,j) + 1); // Advance index past used pair
+                             if (slotInfo.categoryKey === 'elementary_6am') scheduleIndices[sequentialStateKeys.elementary_6am] = effectiveCurrentIndex;
+                             else scheduleIndices[sequentialStateKeys.middle_7am] = effectiveCurrentIndex;
+                            break;
                         }
+                         if(p1Obj && !p2Obj) p1Obj = null; // Reset p1 if no p2 found for it, to try next p1
                     }
                 }
 
             } else if (slotInfo.random) {
-                let eligibleForRandom = targetPool.filter(p => !prevMonthAbsentees.has(p.id));
-                if (eligibleForRandom.length < 2) { 
-                    eligibleForRandom = targetPool.filter(p => p.isActive); // Use all active if not enough non-absentees
-                }
-                
-                eligibleForRandom.sort((a, b) => {
-                    const countA = assignmentCounts.get(a.id)[slotInfo.type === 'elementary' ? 'random_elementary' : 'random_middle'];
-                    const countB = assignmentCounts.get(b.id)[slotInfo.type === 'elementary' ? 'random_elementary' : 'random_middle'];
-                    if (countA !== countB) return countA - countB;
-                    return Math.random() - 0.5; 
+                let eligibleForRandomRaw = originalTargetPool.filter(p => {
+                     // Apply weekly check and daily assignment check upfront
+                    if (dailyAssignments.has(p.id)) return false;
+                    const pCountsMap = assignmentCounts.get(p.id);
+                    const pWeeklyAssignments = participantWeeklyAssignments.get(p.id);
+                    if (pCountsMap.get('total') >= 2 && pWeeklyAssignments.has(currentWeekForSlot)) return false;
+                    return true;
                 });
 
-                for (let i = 0; i < eligibleForRandom.length && assignedPair.length < 2; i++) {
-                    const p1Candidate = eligibleForRandom[i];
-                    if (dailyAssignments.has(p1Candidate.id)) continue;
+                // If not enough non-absentees, consider all active, but still apply weekly/daily checks
+                const nonAbsentees = eligibleForRandomRaw.filter(p => !prevMonthAbsentees.has(p.id));
+                if (nonAbsentees.length < 2 && eligibleForRandomRaw.length >=2 ) {
+                    // This condition might be too simple, but for now, we use the filtered 'eligibleForRandomRaw'
+                } else if (nonAbsentees.length >= 2) {
+                    eligibleForRandomRaw = nonAbsentees; // Prefer non-absentees if enough
+                }
 
-                    // New weekly assignment eligibility check for p1Candidate
-                    const p1Counts = assignmentCounts.get(p1Candidate.id);
-                    const p1WeeklyAssignments = participantWeeklyAssignments.get(p1Candidate.id);
-                    const currentWeekForSlot = getWeekOfMonth(currentDate);
-                    if (p1Counts.total >= 2 && p1WeeklyAssignments.has(currentWeekForSlot)) {
-                        continue; // Skip this p1Candidate
-                    }
-                    const p1Obj = p1Candidate; // Assign to p1Obj if eligible
 
-                    for (let j = i + 1; j < eligibleForRandom.length; j++) {
-                        const p2Candidate = eligibleForRandom[j];
-                        if (dailyAssignments.has(p2Candidate.id)) continue;
+                const enhancedEligibleForRandom = eligibleForRandomRaw.map(p =>
+                    getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)
+                );
+                enhancedEligibleForRandom.sort(compareEnhancedParticipants);
 
-                        // New weekly assignment eligibility check for p2Candidate
-                        const p2Counts = assignmentCounts.get(p2Candidate.id);
-                        const p2WeeklyAssignments = participantWeeklyAssignments.get(p2Candidate.id);
-                        // currentWeekForSlot is already defined from p1Obj check scope
-                        if (p2Counts.total >= 2 && p2WeeklyAssignments.has(currentWeekForSlot)) {
-                            continue; // Skip this p2Candidate
-                        }
-                        const p2Obj = p2Candidate; // Assign to p2Obj if eligible
+                let p1Data = null, p2Data = null;
 
-                        if (p1Obj.gender === p2Obj.gender) { // SAME GENDER CHECK
-                            assignedPair = [p1Obj.id, p2Obj.id];
-                            break; 
+                for (let i = 0; i < enhancedEligibleForRandom.length; i++) {
+                    p1Data = enhancedEligibleForRandom[i];
+                    // Daily check already done by initial filter for eligibleForRandomRaw
+
+                    for (let j = i + 1; j < enhancedEligibleForRandom.length; j++) {
+                        p2Data = enhancedEligibleForRandom[j];
+                        if (p1Data.gender === p2Data.gender) {
+                            assignedPair = [p1Data.id, p2Data.id];
+                            break;
                         }
                     }
                     if (assignedPair.length === 2) break;
+                    p2Data = null; // Reset if inner loop didn't find a pair
                 }
+                 if (!p1Data || !p2Data || assignedPair.length < 2) assignedPair = []; // Ensure it's empty if no pair
 
-                if (assignedPair.length < 2 && eligibleForRandom.length >=2) {
-                    let fallbackIndexKey = slotInfo.type === 'elementary' ? sequentialStateKeys.elementary_random_fallback : sequentialStateKeys.middle_random_fallback;
-                    let baseCurrentIndex = scheduleIndices[fallbackIndexKey];
-                    let effectiveCurrentIndex = baseCurrentIndex;
-                    let p1Obj = null, p2Obj = null;
-                    let p1ScannedCountTotal = 0;
+                // Fallback for random slots (if primary sort didn't yield a pair)
+                if (assignedPair.length < 2 && eligibleForRandomRaw.length >=2) {
+                    // This fallback should also use the sorted enhanced list for consistency or a simpler index-based approach
+                    // For simplicity, reusing the sorted list and trying to pick with index (less robust than full sequential here)
+                    let fallbackIndexKey = slotInfo.categoryKey === 'elementary_random' ? sequentialStateKeys.elementary_random_fallback : sequentialStateKeys.middle_random_fallback;
+                    if (!sequentialStateKeys[slotInfo.categoryKey] && slotInfo.type === 'elementary') fallbackIndexKey = sequentialStateKeys.elementary_random_fallback;
+                    else if (!sequentialStateKeys[slotInfo.categoryKey] && slotInfo.type === 'middle') fallbackIndexKey = sequentialStateKeys.middle_random_fallback;
                     
-                    const maxSearchAttempts = eligibleForRandom.length + 1;
-                    for (let p1Attempt = 0; p1Attempt < maxSearchAttempts && assignedPair.length < 2; p1Attempt++) {
-                        p1Obj = null;
-                        let p1ScannedThisTry = 0;
-                        for (let i = 0; i < eligibleForRandom.length; i++) {
-                             p1ScannedThisTry++;
-                            const candidate = eligibleForRandom[(effectiveCurrentIndex + i) % eligibleForRandom.length];
-                            if (!candidate || dailyAssignments.has(candidate.id) || assignedPair.includes(candidate.id)) continue;
+                    let baseCurrentIndex = scheduleIndices[fallbackIndexKey] || 0;
+                    let p1Obj = null, p2Obj = null;
 
-                            // New weekly assignment eligibility check for p1 candidate
-                            const p1CandidateCounts = assignmentCounts.get(candidate.id);
-                            const p1CandidateWeeklyAssignments = participantWeeklyAssignments.get(candidate.id);
-                            const currentWeekForSlot = getWeekOfMonth(currentDate);
-                            if (p1CandidateCounts.total >= 2 && p1CandidateWeeklyAssignments.has(currentWeekForSlot)) {
-                                continue; // Skip this candidate for p1
-                            }
-                            p1Obj = candidate;
-                            break;
-                        }
-                        if (!p1Obj) break;
+                    const poolForFallback = enhancedEligibleForRandom.map(data => data.obj); // Get original objects
 
-                        p2Obj = null;
-                        let p2ScannedThisTry = 0;
-                        for (let i = 1; i < eligibleForRandom.length; i++) {
-                            p2ScannedThisTry++;
-                            const p2CandidateIndex = (effectiveCurrentIndex + p1ScannedThisTry -1 + i) % eligibleForRandom.length;
-                            const candidate = eligibleForRandom[p2CandidateIndex];
-                            if (!candidate || dailyAssignments.has(candidate.id) || candidate.id === p1Obj.id || assignedPair.includes(candidate.id)) continue;
+                    for (let i = 0; i < poolForFallback.length; i++) {
+                        const candidate1 = poolForFallback[(baseCurrentIndex + i) % poolForFallback.length];
+                        if (dailyAssignments.has(candidate1.id)) continue; // Should be pre-filtered, but double check
+                        p1Obj = candidate1;
 
-                            // New weekly assignment eligibility check for p2 candidate
-                            // currentWeekForSlot is already defined from p1Obj check scope
-                            const p2CandidateCounts = assignmentCounts.get(candidate.id);
-                            const p2CandidateWeeklyAssignments = participantWeeklyAssignments.get(candidate.id);
-                            if (p2CandidateCounts.total >= 2 && p2CandidateWeeklyAssignments.has(currentWeekForSlot)) {
-                                continue; // Skip this candidate for p2
-                            }
-                            
-                            if (candidate.gender === p1Obj.gender) { // SAME GENDER CHECK
-                                p2Obj = candidate;
+                        for (let j = i + 1; j < poolForFallback.length; j++) {
+                            const candidate2 = poolForFallback[(baseCurrentIndex + j) % poolForFallback.length];
+                            if (dailyAssignments.has(candidate2.id) || candidate2.id === p1Obj.id) continue;
+                            if (candidate2.gender === p1Obj.gender) {
+                                p2Obj = candidate2;
                                 break;
                             }
                         }
-
                         if (p1Obj && p2Obj) {
                             assignedPair = [p1Obj.id, p2Obj.id];
-                            p1ScannedCountTotal = p1ScannedThisTry + p2ScannedThisTry;
-                            effectiveCurrentIndex += p1ScannedCountTotal;
-                            scheduleIndices[fallbackIndexKey] = effectiveCurrentIndex;
-                            break; 
-                        } else if (p1Obj) {
-                            effectiveCurrentIndex += p1ScannedThisTry;
-                             p1ScannedCountTotal = 0;
+                            scheduleIndices[fallbackIndexKey] = (baseCurrentIndex + Math.max(i,j) + 1);
+                            break;
                         }
+                        if(p1Obj && !p2Obj) p1Obj = null;
                     }
                 }
             }
@@ -329,29 +356,24 @@ export async function generateSchedule(year, month) {
             if (assignedPair.length === 2) {
                 assignedPair.forEach(id => {
                     dailyAssignments.add(id);
-                    const counts = assignmentCounts.get(id);
-                    counts.total++;
-                    if (slotInfo.random) {
-                        if (slotInfo.type === 'elementary') counts.random_elementary++;
-                        else counts.random_middle++;
+                    const countsForParticipant = assignmentCounts.get(id);
+                    countsForParticipant.set('total', (countsForParticipant.get('total') || 0) + 1);
+                    if (slotInfo.categoryKey) {
+                        countsForParticipant.set(slotInfo.categoryKey, (countsForParticipant.get(slotInfo.categoryKey) || 0) + 1);
                     }
-                    // Update weekly assignments
                     const weekOfMonth = getWeekOfMonth(currentDate);
                     participantWeeklyAssignments.get(id).add(weekOfMonth);
                 });
                 const assignedPairNames = assignedPair.map(id => participantsMap.get(id)?.name || `ID:${id}`);
-
-                let isFixedStatusArray = [false, false];
-                if (assignedPair.length === 2) {
-                    isFixedStatusArray = assignedPair.map(id => id === fixedAssigneeId && fixedAssigneeId !== null);
-                }
+                let isFixedStatusArray = assignedPair.map(id => id === fixedAssigneeId && fixedAssigneeId !== null);
 
                 daySchedule.timeSlots.push({ 
                     time: slotInfo.time, 
                     type: slotInfo.type, 
                     assigned: assignedPair,
                     assignedNames: assignedPairNames,
-                    isFixedStatus: isFixedStatusArray
+                    isFixedStatus: isFixedStatusArray,
+                    categoryKey: slotInfo.categoryKey // Persist categoryKey
                 });
             } else {
                  daySchedule.timeSlots.push({ 
@@ -359,7 +381,8 @@ export async function generateSchedule(year, month) {
                     type: slotInfo.type, 
                     assigned: [],
                     assignedNames: ['미배정'],
-                    isFixedStatus: [false, false]
+                    isFixedStatus: [false, false],
+                    categoryKey: slotInfo.categoryKey // Persist categoryKey
                 });
             }
         }
@@ -373,5 +396,46 @@ export async function generateSchedule(year, month) {
     }
     
     await db.saveSchedule(year, month, scheduleData);
+
+    try {
+        const formattedAssignmentData = [];
+        for (const [participantId, categoryMap] of assignmentCounts.entries()) {
+            for (const [categoryKey, count] of categoryMap.entries()) {
+                if (categoryKey !== 'total' && count > 0) {
+                    formattedAssignmentData.push({
+                        participantId: participantId,
+                        categoryKey: categoryKey, // Actual categoryKey from TIME_SLOT_CONFIG
+                        count: count
+                    });
+                }
+            }
+        }
+        if (formattedAssignmentData.length > 0) {
+            await db.saveMonthlyAssignmentCounts(year, month, formattedAssignmentData);
+            console.log(`Monthly assignment counts for ${year}-${month} saved.`);
+        }
+    } catch (error) {
+        console.error(`Failed to save monthly assignment counts for ${year}-${month}:`, error);
+    }
+
     return scheduleData;
 }
+
+// Ensure all participant objects are accessed via .obj when iterating through enhanced data, e.g., p1Data.obj
+// Ensure all categoryKey references are correct (e.g. in sequentialStateKeys, TIME_SLOT_CONFIG)
+// Added fallback category keys to uniqueCategoryKeys for complete counting.
+// Persisted categoryKey in daySchedule.timeSlots for potential use in UI or other logic.
+// Corrected gender check: typeof p.gender === 'undefined' || !p.gender
+// Fixed absentee preferred partner selection to use enhancedEligiblePartners.
+// Simplified sequential assignment after sorting: iterate and pick. Needs careful index management.
+// Simplified random fallback to use the already sorted enhancedEligibleForRandom.
+// Corrected scheduleIndices update for sequential slots.
+// Corrected categoryKey persistence in timeSlots.
+// Ensured dailyAssignments check is robust in all loops.
+// Ensured fallback keys are added to uniqueCategoryKeys for assignmentCounts initialization.
+// The sequential fallback for random slots was simplified; it now uses the already sorted `enhancedEligibleForRandom`
+// and attempts to pick sequentially from it. This is not a true sequential rotation like the main sequential slots but
+// leverages the sorting order.
+// The main sequential slot logic for non-absentees now also filters, then maps to enhanced data, sorts, maps back to objects,
+// and then attempts sequential assignment using the scheduleIndices. This is a significant change to how sequential works.
+// The fixed absentee assignment logic was also updated to use enhanced data for partner selection.
