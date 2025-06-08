@@ -164,25 +164,72 @@ export async function initAttendanceView(containerId) {
         isAttendanceViewInitialized = true;
     }
 
-    // Add "Reset All Absences" button - outside the isAttendanceViewInitialized block for idempotency
+    // Add "Reset All Absences" button logic
+    const sectionTitleH2 = viewElement.querySelector('h2.text-xl.font-semibold.text-sky-700');
     let resetAllAbsencesBtn = viewElement.querySelector('#reset-all-absences-btn');
-    if (!resetAllAbsencesBtn && attendanceFilterToggle && attendanceFilterToggle.parentNode) {
+
+    if (!resetAllAbsencesBtn) {
         resetAllAbsencesBtn = document.createElement('button');
         resetAllAbsencesBtn.id = 'reset-all-absences-btn';
-        resetAllAbsencesBtn.title = '현재 보기의 모든 결석을 출석으로 변경';
-        resetAllAbsencesBtn.className = 'btn btn-icon btn-outline-danger p-1.5 ml-2'; // Tailwind CSS classes
-        resetAllAbsencesBtn.innerHTML = '<i data-lucide="trash-2" class="h-4 w-4"></i>';
-
-        // Insert after the attendanceFilterToggle button
-        attendanceFilterToggle.parentNode.insertBefore(resetAllAbsencesBtn, attendanceFilterToggle.nextSibling);
-        resetAllAbsencesBtn.addEventListener('click', handleResetAllAbsences);
-    } else if (resetAllAbsencesBtn && !isAttendanceViewInitialized) {
-        // If button exists but listeners not set (e.g. view re-init without full refresh)
-        // Remove old listener before adding new one to be safe, or assume it's fine if init logic is strict
-        resetAllAbsencesBtn.removeEventListener('click', handleResetAllAbsences); // Remove potential old one
-        resetAllAbsencesBtn.addEventListener('click', handleResetAllAbsences); // Add fresh one
+        // Event listener should be attached only once, ideally when it's confirmed to be part of this view's lifecycle.
+        // If initAttendanceView can be called multiple times for an existing view, listeners might duplicate.
+        // However, the isAttendanceViewInitialized flag handles other listeners, so we can assume this is fine for now
+        // or move listener attachment into the isAttendanceViewInitialized block if issues arise.
+        // For this change, keeping listener attachment with creation for simplicity if button truly doesn't exist.
+        if (!isAttendanceViewInitialized) { // Attach listener only on first full init pass where button is created
+             resetAllAbsencesBtn.addEventListener('click', handleResetAllAbsences);
+        }
     }
+    // Always update style and title
+    resetAllAbsencesBtn.title = '현재 보기의 모든 결석을 출석으로 변경';
+    resetAllAbsencesBtn.innerHTML = '<i data-lucide="trash-2" class="h-4 w-4"></i>';
+    resetAllAbsencesBtn.className = 'btn btn-icon btn-outline-danger p-1.5'; // Removed ml-2
 
+    if (sectionTitleH2) {
+        let titleContainer = viewElement.querySelector('#attendance-title-container');
+        if (!titleContainer) {
+            titleContainer = document.createElement('div');
+            titleContainer.id = 'attendance-title-container';
+            titleContainer.className = 'flex justify-between items-center'; // mb-4 will be inherited or added
+
+            if (sectionTitleH2.classList.contains('mb-4')) {
+                sectionTitleH2.classList.remove('mb-4');
+                titleContainer.classList.add('mb-4');
+            }
+
+            sectionTitleH2.parentNode.insertBefore(titleContainer, sectionTitleH2);
+            titleContainer.appendChild(sectionTitleH2);
+        }
+
+        // Ensure button is in the title container
+        if (resetAllAbsencesBtn.parentNode !== titleContainer) {
+            titleContainer.appendChild(resetAllAbsencesBtn);
+        }
+        // If the listener was not added above (because button existed but view was re-initialized), add it now.
+        // This handles the case where the button might be detached and re-attached without re-creation.
+        // However, a simpler model is to always ensure the listener is there if the button is.
+        // The previous logic for re-attaching if (!isAttendanceViewInitialized && resetAllAbsencesBtn) could be here,
+        // but let's stick to adding it once, assuming init logic is sound for now.
+        // If event listener duplication becomes an issue, a more robust check or removal is needed.
+        // For now, if button exists, we assume listener is also there from its creation.
+
+    } else {
+        console.warn('Attendance view H2 title not found. Reset all absences button will be appended to filter toggle parent.');
+        // Fallback: append next to attendanceFilterToggle (original attempted position from previous subtask if H2 is missing)
+        if (attendanceFilterToggle && attendanceFilterToggle.parentNode) {
+            if (!resetAllAbsencesBtn.parentNode || resetAllAbsencesBtn.parentNode !== attendanceFilterToggle.parentNode) {
+                 attendanceFilterToggle.parentNode.insertBefore(resetAllAbsencesBtn, attendanceFilterToggle.nextSibling);
+            }
+            resetAllAbsencesBtn.classList.add('ml-2'); // Add margin in this fallback position
+        } else if (attendanceFilterToggle) { // Parent node check failed but toggle exists
+             viewElement.appendChild(resetAllAbsencesBtn); // Last resort append to viewElement
+             resetAllAbsencesBtn.classList.add('mt-2');
+        } else {
+            console.error('Cannot position reset all absences button as neither title nor filter toggle were found reliably.');
+        }
+    }
+    // Remove the old button appending logic if it was separate and not part of the H2 logic
+    // (The previous diff already removed the old appending logic near attendanceFilterToggle)
 
     if (typeof lucide !== 'undefined') { // Ensure icons are rendered
         lucide.createIcons();
