@@ -168,7 +168,7 @@ export async function generateSchedule(year, month) {
         middleAbsentees.forEach(id => absenteesForSecondRandomRound.add(id));
     }
 
-    let assignedCoreSlotsCount = { elementary_6am: 0, middle_7am: 0 }; // Added for B-2
+    let assignedCoreSlotsCount = { elementary_6am: 0, middle_7am: 0 };
 
     let scheduleData = [];
 
@@ -229,6 +229,7 @@ export async function generateSchedule(year, month) {
             if (slotInfo.sequential) {
                 const isElementaryCoreSlot = slotInfo.categoryKey === CORE_CATEGORIES.elementary;
                 const isMiddleCoreSlot = slotInfo.categoryKey === CORE_CATEGORIES.middle;
+                let attemptA1Successful = false;
 
                 // A단계 - 1차 핵심 시간대 배정 (결석자 우선, 목표: 1회)
                 if (isElementaryCoreSlot || isMiddleCoreSlot) {
@@ -278,20 +279,72 @@ export async function generateSchedule(year, month) {
                                 absenteeFixedWeeklyAssignments.get(absenteeToAssign.id).add(currentWeekForSlot);
                                 if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++;
                                 else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++;
+                                attemptA1Successful = true;
                                 break;
                             }
                         }
                     }
-                }
-                // End of A단계
-                
+                } // End of A-1
+
+                // A단계 - 2차 핵심 시간대 배정 (결석자, 목표: 2회까지)
+                if (!attemptA1Successful && (isElementaryCoreSlot || isMiddleCoreSlot)) {
+                    const potentialAbsenteesForSecondCore = originalTargetPool.filter(p => {
+                        const targetAssignments = p.type === '초등' ? elementaryTargetCoreAssignments : middleTargetCoreAssignments;
+                        return prevMonthAbsentees.has(p.id) &&
+                               (fixedAbsenteeAssignments.get(p.id) || 0) === 1 && // 정확히 1회 배정받았고
+                               targetAssignments === 2 && // 목표가 2회인 경우
+                               !absenteeFixedWeeklyAssignments.get(p.id)?.has(currentWeekForSlot) && // 이번 주에 다른 핵심 배정 안받음
+                               !dailyAssignments.has(p.id) &&
+                               !((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeekForSlot));
+                    });
+
+                    if (potentialAbsenteesForSecondCore.length > 0) {
+                         const sortedPotentialAbsentees = potentialAbsenteesForSecondCore
+                            .map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts))
+                            .sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts));
+
+                        for (const absenteeData of sortedPotentialAbsentees) {
+                            const absenteeToAssign = absenteeData.obj;
+                             const eligiblePartnersPool = originalTargetPool.filter(p => {
+                                if (p.id === absenteeToAssign.id || dailyAssignments.has(p.id) || p.gender !== absenteeToAssign.gender) return false;
+                                const pCountsMap = assignmentCounts.get(p.id);
+                                const pWeeklyAssignments = participantWeeklyAssignments.get(p.id);
+                                return !((pCountsMap.get('total') || 0) >= 2 && pWeeklyAssignments.has(currentWeekForSlot));
+                            });
+
+                            const enhancedEligiblePartners = eligiblePartnersPool
+                                .map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts))
+                                .sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts));
+
+                            let partnerToAssign = null;
+                            let preferredPartnerData = enhancedEligiblePartners.find(pd => {
+                                const p = pd.obj;
+                                const partnerTargetCoreAssignments = (p.type === '초등') ? elementaryTargetCoreAssignments : middleTargetCoreAssignments;
+                                return !prevMonthAbsentees.has(p.id) || (fixedAbsenteeAssignments.get(p.id) || 0) >= partnerTargetCoreAssignments;
+                            });
+                            if (preferredPartnerData) { partnerToAssign = preferredPartnerData.obj; }
+                            else if (enhancedEligiblePartners.length > 0) { partnerToAssign = enhancedEligiblePartners[0].obj; }
+
+                            if (partnerToAssign) {
+                                assignedPair = [absenteeToAssign.id, partnerToAssign.id];
+                                fixedAssigneeId = absenteeToAssign.id;
+                                fixedAbsenteeAssignments.set(absenteeToAssign.id, (fixedAbsenteeAssignments.get(absenteeToAssign.id) || 0) + 1);
+                                absenteeFixedWeeklyAssignments.get(absenteeToAssign.id).add(currentWeekForSlot);
+                                if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++;
+                                else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++;
+                                // attemptA2Successful = true; // No separate flag needed, if assignedPair is filled, subsequent blocks are skipped.
+                                break;
+                            }
+                        }
+                    }
+                } // End of A-2
+
                 if (assignedPair.length < 2) {
                     let attemptB1Successful = false;
-                    let attemptB2Successful = false;
-                    const isCoreSlotForBSequential = isElementaryCoreSlot || isMiddleCoreSlot;
+                    // B-2 stage will have its own flag if separated, or rely on assignedPair like A-2
+                    // const isCoreSlotForBSequential = isElementaryCoreSlot || isMiddleCoreSlot; // Redundant, use outer isElementaryCoreSlot / isMiddleCoreSlot
 
-                    if (isCoreSlotForBSequential) {
-                        // B단계 - 1차 핵심 시간대 배정 (일반 인원, 목표: 1회)
+                    if (isElementaryCoreSlot || isMiddleCoreSlot) { // B-1
                         const potentialRegularsForFirstCore = originalTargetPool.filter(p => {
                             return !prevMonthAbsentees.has(p.id) &&
                                    (assignmentCounts.get(p.id)?.get(slotInfo.categoryKey) || 0) === 0 &&
@@ -300,23 +353,19 @@ export async function generateSchedule(year, month) {
                         });
 
                         if (potentialRegularsForFirstCore.length >= 2) {
-                            const enhancedRegularsForFirstCore = potentialRegularsForFirstCore
+                            const sortedRegularsForFirstCore = potentialRegularsForFirstCore
                                 .map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts))
-                                .sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts));
-
-                            const sortedRegularsForFirstCore = enhancedRegularsForFirstCore.map(data => data.obj);
+                                .sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts))
+                                .map(data => data.obj);
 
                             let p1Obj_B1 = null, p2Obj_B1 = null;
                             for (let i = 0; i < sortedRegularsForFirstCore.length; i++) {
                                 const candidate1_B1 = sortedRegularsForFirstCore[i];
-                                if (dailyAssignments.has(candidate1_B1.id)) continue;
-                                if ((assignmentCounts.get(candidate1_B1.id)?.get(slotInfo.categoryKey) || 0) !== 0) continue;
-
+                                if (dailyAssignments.has(candidate1_B1.id) || (assignmentCounts.get(candidate1_B1.id)?.get(slotInfo.categoryKey) || 0) !== 0) continue;
                                 p1Obj_B1 = candidate1_B1;
                                 for (let p2LoopIdx = i + 1; p2LoopIdx < sortedRegularsForFirstCore.length; p2LoopIdx++) {
                                     const candidate2_B1 = sortedRegularsForFirstCore[p2LoopIdx];
-                                    if (dailyAssignments.has(candidate2_B1.id) || candidate2_B1.id === p1Obj_B1.id) continue;
-                                    if ((assignmentCounts.get(candidate2_B1.id)?.get(slotInfo.categoryKey) || 0) !== 0) continue;
+                                    if (dailyAssignments.has(candidate2_B1.id) || candidate2_B1.id === p1Obj_B1.id || (assignmentCounts.get(candidate2_B1.id)?.get(slotInfo.categoryKey) || 0) !== 0) continue;
                                     if (candidate2_B1.gender === p1Obj_B1.gender) {
                                         p2Obj_B1 = candidate2_B1;
                                         break;
@@ -326,44 +375,38 @@ export async function generateSchedule(year, month) {
                                     assignedPair = [p1Obj_B1.id, p2Obj_B1.id];
                                     fixedAssigneeId = null;
                                     attemptB1Successful = true;
-                                    if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++;
-                                    else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++;
+                                    if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++; else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++;
                                     break;
                                 }
                                 if(p1Obj_B1 && !p2Obj_B1) p1Obj_B1 = null;
                             }
                         }
-                    } // End of B단계 - 1차
+                    } // End of B-1
 
-                    if (!attemptB1Successful && isCoreSlotForBSequential) { // B-1 실패했고, 핵심 슬롯이면 B-2 시도
+                    if (!attemptB1Successful && (isElementaryCoreSlot || isMiddleCoreSlot)) { // B-2
                         const coreCategoryKeyForSlot = slotInfo.categoryKey;
                         const remainingCoreSlotsForType = totalCoreSlots[coreCategoryKeyForSlot] - assignedCoreSlotsCount[coreCategoryKeyForSlot];
-
                         const potentialRegularsForSecondCore = originalTargetPool.filter(p => {
                             return !prevMonthAbsentees.has(p.id) &&
-                                   (assignmentCounts.get(p.id)?.get(coreCategoryKeyForSlot) || 0) === 1 && // 정확히 1회 배정된 일반인
+                                   (assignmentCounts.get(p.id)?.get(coreCategoryKeyForSlot) || 0) === 1 &&
                                    !dailyAssignments.has(p.id) &&
                                    !((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeekForSlot));
                         });
 
                         if (remainingCoreSlotsForType > 0 && potentialRegularsForSecondCore.length >= 2) {
-                            const enhancedRegularsForSecondCore = potentialRegularsForSecondCore
+                            const sortedRegularsForSecondCore = potentialRegularsForSecondCore
                                 .map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts))
-                                .sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts));
-
-                            const sortedRegularsForSecondCore = enhancedRegularsForSecondCore.map(data => data.obj);
+                                .sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts))
+                                .map(data => data.obj);
 
                             let p1Obj_B2 = null, p2Obj_B2 = null;
                             for (let i = 0; i < sortedRegularsForSecondCore.length; i++) {
                                 const candidate1_B2 = sortedRegularsForSecondCore[i];
-                                if (dailyAssignments.has(candidate1_B2.id)) continue;
-                                if ((assignmentCounts.get(candidate1_B2.id)?.get(coreCategoryKeyForSlot) || 0) !== 1) continue;
-
+                                if (dailyAssignments.has(candidate1_B2.id) || (assignmentCounts.get(candidate1_B2.id)?.get(coreCategoryKeyForSlot) || 0) !== 1) continue;
                                 p1Obj_B2 = candidate1_B2;
                                 for (let p2LoopIdx = i + 1; p2LoopIdx < sortedRegularsForSecondCore.length; p2LoopIdx++) {
                                     const candidate2_B2 = sortedRegularsForSecondCore[p2LoopIdx];
-                                    if (dailyAssignments.has(candidate2_B2.id) || candidate2_B2.id === p1Obj_B2.id) continue;
-                                     if ((assignmentCounts.get(candidate2_B2.id)?.get(coreCategoryKeyForSlot) || 0) !== 1) continue;
+                                    if (dailyAssignments.has(candidate2_B2.id) || candidate2_B2.id === p1Obj_B2.id || (assignmentCounts.get(candidate2_B2.id)?.get(coreCategoryKeyForSlot) || 0) !== 1) continue;
                                     if (candidate2_B2.gender === p1Obj_B2.gender) {
                                         p2Obj_B2 = candidate2_B2;
                                         break;
@@ -372,31 +415,25 @@ export async function generateSchedule(year, month) {
                                 if (p1Obj_B2 && p2Obj_B2) {
                                     assignedPair = [p1Obj_B2.id, p2Obj_B2.id];
                                     fixedAssigneeId = null;
-                                    attemptB2Successful = true;
-                                    if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++;
-                                    else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++;
+                                    // attemptB2Successful = true; // Not strictly needed if assignedPair is the main check
+                                    if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++; else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++;
                                     break;
                                 }
                                 if(p1Obj_B2 && !p2Obj_B2) p1Obj_B2 = null;
                             }
                         }
-                    } // End of B단계 - 2차
+                    } // End of B-2
 
-                    if (assignedPair.length < 2) { // A, B-1, B-2 모두 실패 또는 비핵심 순차 슬롯
+                    if (assignedPair.length < 2) { // General sequential (C/D/E precursor)
                         const filteredTargetPool = originalTargetPool.filter(p => {
                             let isEligibleForFixedGeneral = true;
                             if (prevMonthAbsentees.has(p.id)) {
                                 const targetCount = (p.type === '초등' && isElementaryCoreSlot) ? elementaryTargetCoreAssignments :
-                                                  (p.type === '중등' && isMiddleCoreSlot) ? middleTargetCoreAssignments :
-                                                  2;
-                                if ((fixedAbsenteeAssignments.get(p.id) || 0) >= targetCount) {
-                                    isEligibleForFixedGeneral = false;
-                                }
-                                if (isCoreSlotForBSequential && absenteeFixedWeeklyAssignments.get(p.id)?.has(currentWeekForSlot)) {
-                                    isEligibleForFixedGeneral = false;
-                                }
+                                                  (p.type === '중등' && isMiddleCoreSlot) ? middleTargetCoreAssignments : 2;
+                                if ((fixedAbsenteeAssignments.get(p.id) || 0) >= targetCount) isEligibleForFixedGeneral = false;
+                                if ((isElementaryCoreSlot || isMiddleCoreSlot) && absenteeFixedWeeklyAssignments.get(p.id)?.has(currentWeekForSlot)) isEligibleForFixedGeneral = false;
                             }
-                            if (!isEligibleForFixedGeneral && isCoreSlotForBSequential) return false;
+                            if (!isEligibleForFixedGeneral && (isElementaryCoreSlot || isMiddleCoreSlot)) return false;
 
                             const pCountsMap = assignmentCounts.get(p.id);
                             const pWeeklyAssignments = participantWeeklyAssignments.get(p.id);
@@ -414,7 +451,6 @@ export async function generateSchedule(year, month) {
                             console.warn(`Sequential slot categoryKey ${baseCurrentIndexKey} not found in sequentialStateKeys. Using default index logic.`);
                             baseCurrentIndexKey = slotInfo.type === 'elementary' ? 'elementary_6am' : 'middle_7am';
                         }
-
                         let baseCurrentIndex = scheduleIndices[sequentialStateKeys[baseCurrentIndexKey]] || 0;
                         let effectiveCurrentIndex = baseCurrentIndex;
                         let p1Obj = null, p2Obj = null;
@@ -424,11 +460,9 @@ export async function generateSchedule(year, month) {
                             if (!candidate1 || dailyAssignments.has(candidate1.id)) continue;
                             p1Obj = candidate1;
                             let foundP2OriginalIndex = -1;
-
                             for (let p2LoopIdx = 0; p2LoopIdx < sortedTargetPool.length; p2LoopIdx++) {
                                 const p2PoolIndex = (effectiveCurrentIndex + p2LoopIdx) % sortedTargetPool.length;
                                 if (p2PoolIndex === (effectiveCurrentIndex + i) % sortedTargetPool.length) continue;
-
                                 const candidate2 = sortedTargetPool[p2PoolIndex];
                                 if (!candidate2 || dailyAssignments.has(candidate2.id) || candidate2.id === p1Obj.id) continue;
                                 if (candidate2.gender === p1Obj.gender) {
@@ -455,8 +489,7 @@ export async function generateSchedule(year, month) {
                                         }
                                     }
                                 });
-                                // If this general assignment filled a core slot, count it.
-                                if (isCoreSlotForBSequential && !attemptB1Successful && !attemptB2Successful) { // Check flags to ensure it wasn't counted in B1/B2
+                                if ((isElementaryCoreSlot || isMiddleCoreSlot) && !attemptB1Successful /* && !attemptB2Successful - implicit if assignedPair was empty before this */) {
                                    if (slotInfo.categoryKey === CORE_CATEGORIES.elementary) assignedCoreSlotsCount.elementary_6am++;
                                    else if (slotInfo.categoryKey === CORE_CATEGORIES.middle) assignedCoreSlotsCount.middle_7am++;
                                 }
@@ -466,9 +499,7 @@ export async function generateSchedule(year, month) {
                         }
                     }
                 }
-
             } else if (slotInfo.random) {
-                // ... (random logic remains largely the same, but uses compareEnhancedParticipants(a,b,true,assignmentCounts))
                 let eligibleForRandomRaw = originalTargetPool.filter(p => {
                     if (dailyAssignments.has(p.id)) return false;
                     const pCountsMap = assignmentCounts.get(p.id);
@@ -487,11 +518,9 @@ export async function generateSchedule(year, month) {
                 );
                 enhancedEligibleForRandom.sort((a,b) => compareEnhancedParticipants(a,b,true,assignmentCounts));
 
-
                 let p1Data = null, p2Data = null;
                 for (let i = 0; i < enhancedEligibleForRandom.length; i++) {
                     p1Data = enhancedEligibleForRandom[i];
-
                     for (let j = i + 1; j < enhancedEligibleForRandom.length; j++) {
                         p2Data = enhancedEligibleForRandom[j];
                         if (p1Data.gender === p2Data.gender) {
@@ -512,19 +541,15 @@ export async function generateSchedule(year, month) {
 
                     let baseCurrentIndex = scheduleIndices[sequentialStateKeys[fallbackIndexKey]] || 0;
                     let p1Obj = null, p2Obj = null;
-
                     const poolForFallback = enhancedEligibleForRandom.map(data => data.obj);
-
                     for (let i = 0; i < poolForFallback.length; i++) {
                         const candidate1 = poolForFallback[(baseCurrentIndex + i) % poolForFallback.length];
                         if (dailyAssignments.has(candidate1.id)) continue;
                         p1Obj = candidate1;
                         let foundP2OriginalIndex = -1;
-
                         for (let p2_idx = 0; p2_idx < poolForFallback.length; p2_idx++) {
                             const p2PoolIndex = (baseCurrentIndex + p2_idx) % poolForFallback.length;
                              if (p2PoolIndex === (baseCurrentIndex + i) % poolForFallback.length) continue;
-
                             const candidate2 = poolForFallback[p2PoolIndex];
                             if (dailyAssignments.has(candidate2.id) || candidate2.id === p1Obj.id) continue;
                             if (candidate2.gender === p1Obj.gender) {
@@ -542,7 +567,7 @@ export async function generateSchedule(year, month) {
                         if(p1Obj && !p2Obj) p1Obj = null;
                     }
                 }
-            } // End of random
+            }
 
             if (assignedPair.length === 2) {
                 assignedPair.forEach(id => {
@@ -576,11 +601,97 @@ export async function generateSchedule(year, month) {
                     categoryKey: slotInfo.categoryKey
                 });
             }
-        } // End slot loop
+        }
         if (daySchedule.timeSlots.length > 0) {
             scheduleData.push(daySchedule);
         }
-    } // End day loop
+    }
+
+    // --- A단계 - 결석자 2회차 '그 외 시간대' 배정 (슬롯 부족 또는 2차 핵심 실패 시) ---
+    console.log("Attempting 2nd round 'non-core' assignments for absentees who still need them.");
+    const absenteesStillNeedingSecondAssignment = participants.filter(p =>
+        prevMonthAbsentees.has(p.id) &&
+        (fixedAbsenteeAssignments.get(p.id) || 0) < 2 &&
+        (absenteesForSecondRandomRound.has(p.id) ||
+         ((p.type === '초등' && elementaryTargetCoreAssignments === 2) ||
+          (p.type === '중등' && middleTargetCoreAssignments === 2)))
+    );
+
+    if (absenteesStillNeedingSecondAssignment.length > 0) {
+        console.log("Absentees for 2nd non-core round:", absenteesStillNeedingSecondAssignment.map(p=>p.name));
+
+        const postLoopDailyAssignments = new Map();
+        for(let d = 1; d <= daysInMonth; d++) {
+            const dateStrKey = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            postLoopDailyAssignments.set(dateStrKey, new Set());
+            const dayScheduleFromMainLoop = scheduleData.find(ds => ds.date === dateStrKey);
+            if (dayScheduleFromMainLoop) {
+                dayScheduleFromMainLoop.timeSlots.forEach(slot => {
+                    slot.assigned.forEach(id => postLoopDailyAssignments.get(dateStrKey).add(id));
+                });
+            }
+        }
+
+        for (const absentee of absenteesStillNeedingSecondAssignment) {
+            for (let day = 1; day <= daysInMonth; day++) {
+                if ((fixedAbsenteeAssignments.get(absentee.id) || 0) >= 2) break;
+                const currentDate = new Date(year, month - 1, day);
+                const currentWeek = getWeekOfMonth(currentDate);
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const dailyAssignedForThisDay = postLoopDailyAssignments.get(dateStr);
+
+                if (absenteeFixedWeeklyAssignments.get(absentee.id)?.has(currentWeek)) {
+                    continue;
+                }
+
+                const slotsForDay = TIME_SLOT_CONFIG[DAYS_OF_WEEK[currentDate.getDay()]] || [];
+                for (const slotInfo of slotsForDay) {
+                    if ((fixedAbsenteeAssignments.get(absentee.id) || 0) >= 2) break;
+                    if (slotInfo.categoryKey === CORE_CATEGORIES.elementary || slotInfo.categoryKey === CORE_CATEGORIES.middle) {
+                        continue;
+                    }
+
+                    const daySch = scheduleData.find(ds => ds.date === dateStr);
+                    if (!daySch) continue;
+
+                    const targetSlot = daySch.timeSlots.find(ts => ts.time === slotInfo.time && ts.type === slotInfo.type && ts.categoryKey === slotInfo.categoryKey);
+                    if (!targetSlot) continue;
+
+                    if (targetSlot.assigned.length > 0) continue;
+
+                    if (dailyAssignedForThisDay.has(absentee.id)) continue;
+                    if (((assignmentCounts.get(absentee.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(absentee.id)?.has(currentWeek))) continue;
+
+                    const partnerPool = (absentee.type === '초등' ? elementaryParticipants : middleParticipants).filter(p => {
+                        if (p.id === absentee.id || dailyAssignedForThisDay.has(p.id) || p.gender !== absentee.gender) return false;
+                        return !(((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeek)));
+                    });
+
+                    if (partnerPool.length > 0) {
+                        const partner = partnerPool[0];
+
+                        targetSlot.assigned = [absentee.id, partner.id];
+                        targetSlot.assignedNames = [participantsMap.get(absentee.id), participantsMap.get(partner.id)];
+                        targetSlot.isFixedStatus = [false, false];
+
+                        dailyAssignedForThisDay.add(absentee.id);
+                        dailyAssignedForThisDay.add(partner.id);
+
+                        fixedAbsenteeAssignments.set(absentee.id, (fixedAbsenteeAssignments.get(absentee.id) || 0) + 1);
+
+                        [absentee.id, partner.id].forEach(pid => {
+                            const counts = assignmentCounts.get(pid);
+                            counts.set('total', (counts.get('total') || 0) + 1);
+                            if (slotInfo.categoryKey) counts.set(slotInfo.categoryKey, (counts.get(slotInfo.categoryKey) || 0) + 1);
+                            participantWeeklyAssignments.get(pid).add(currentWeek);
+                        });
+                    }
+                }
+            }
+        }
+    }
+    // --- A단계 - 결석자 2회차 '그 외 시간대' 배정 끝 ---
+
 
     // --- C단계: 전체 인원 '그 외 시간대' 및 잔여 슬롯 배정 (목표: 모든 인원 최소 1회) ---
     console.log("Entering C-Step: Ensuring all participants have at least 1 assignment.");
