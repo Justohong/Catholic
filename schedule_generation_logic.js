@@ -118,7 +118,17 @@ export async function generateSchedule(year, month) {
         calculatedPrevTotalCounts.set(p.id, calculatePrevTotalCount(p.id));
     });
 
-    const daysInMonth = new Date(year, month, 0).getDate(); // Moved daysInMonth up for totalCoreSlots calc
+    // Initialize prevMonthAbsentees and fixedAbsenteeAssignments here
+    const prevMonthDateForAbsenteeFetch = new Date(year, month - 1, 0);
+    const prevYearForAbsenteeFetch = prevMonthDateForAbsenteeFetch.getFullYear();
+    const prevMonthForAbsenteeFetch = prevMonthDateForAbsenteeFetch.getMonth() + 1;
+    const prevMonthAbsenteesList = await db.getAbsenteesForMonth(prevYearForAbsenteeFetch, prevMonthForAbsenteeFetch);
+    const prevMonthAbsentees = new Set(prevMonthAbsenteesList); // Now prevMonthAbsentees is defined
+
+    const fixedAbsenteeAssignments = new Map(); // Declare here
+    prevMonthAbsentees.forEach(id => fixedAbsenteeAssignments.set(id, 0)); // Initialize based on defined prevMonthAbsentees
+
+    const daysInMonth = new Date(year, month, 0).getDate();
 
     let totalCoreSlots = { elementary_6am: 0, middle_7am: 0 };
     for (let dayIter = 1; dayIter <= daysInMonth; dayIter++) { // Renamed day to dayIter to avoid conflict
@@ -186,10 +196,7 @@ export async function generateSchedule(year, month) {
     const absenteeFixedWeeklyAssignments = new Map(); // participantId -> Set of week numbers for fixed assignments this month
     participants.forEach(p => absenteeFixedWeeklyAssignments.set(p.id, new Set()));
     
-    const fixedAbsenteeAssignments = new Map(); 
-    const prevMonthAbsenteesList = await db.getAbsenteesForMonth(new Date(year, month - 1, 0).getFullYear(), new Date(year, month - 1, 0).getMonth() + 1);
-    const prevMonthAbsentees = new Set(prevMonthAbsenteesList);
-    prevMonthAbsentees.forEach(id => fixedAbsenteeAssignments.set(id, 0));
+    // Removed fixedAbsenteeAssignments and prevMonthAbsentees related code from here. It will be added earlier.
 
     const sequentialStateKeys = {
         'elementary_6am': 'idx_elem_6am',
