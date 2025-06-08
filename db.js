@@ -132,7 +132,26 @@ export async function deleteMultipleParticipants(ids) {
     });
 }
 
+export async function deleteAllParticipants() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([PARTICIPANTS_STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(PARTICIPANTS_STORE_NAME);
+        const request = store.clear(); // PARTICIPANTS_STORE_NAME의 모든 레코드를 삭제합니다.
+
+        request.onsuccess = () => {
+            console.log('All participants deleted successfully.');
+            resolve();
+        };
+        request.onerror = (event) => {
+            console.error('Error deleting all participants:', event.target.error);
+            reject(event.target.error);
+        };
+    });
+}
+
 // Note: deleteAllParticipants was confirmed missing and will be added in a separate subtask if still needed.
+// The above function is the one being added.
 
 export async function saveSchedule(year, month, scheduleData) {
     const db = await openDB();
