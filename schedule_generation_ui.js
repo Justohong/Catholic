@@ -64,18 +64,47 @@ export function initScheduleGenerationView(viewElementId) {
 
             titleContainer.appendChild(resetBtn);
         } else {
-            // If titleContainer already exists, ensure resetBtn is inside it (e.g., if button was re-created but container exists)
+            // If titleContainer already exists, ensure resetBtn is inside it
             if (resetBtn.parentNode !== sectionTitleH2.parentNode) {
-                sectionTitleH2.parentNode.appendChild(resetBtn);
+                sectionTitleH2.parentNode.appendChild(resetBtn); // resetBtn should already be in titleContainer if structure was applied
             }
         }
+        // Add Excel Download button to the titleContainer
+        let downloadExcelBtn = view.querySelector('#download-schedule-excel-btn');
+        if (!downloadExcelBtn && sectionTitleH2.parentNode.id === 'schedule-title-container') { // Ensure titleContainer exists
+            downloadExcelBtn = document.createElement('button');
+            downloadExcelBtn.id = 'download-schedule-excel-btn';
+            downloadExcelBtn.innerHTML = '<i data-lucide="file-spreadsheet" class="h-5 w-5"></i>';
+            downloadExcelBtn.title = '현재 월 일정 엑셀 다운로드';
+            downloadExcelBtn.className = 'btn btn-icon btn-primary p-2 ml-2'; // Added ml-2 to space from resetBtn
+            sectionTitleH2.parentNode.appendChild(downloadExcelBtn);
+            downloadExcelBtn.addEventListener('click', handleDownloadScheduleExcel);
+        } else if (downloadExcelBtn && !downloadExcelBtn.parentNode) {
+            // If button was found detached, re-append it (edge case)
+             if(sectionTitleH2.parentNode.id === 'schedule-title-container') {
+                sectionTitleH2.parentNode.appendChild(downloadExcelBtn);
+             }
+        }
+
+
     } else {
-        // Fallback: if H2 not found, add to generateBtn's parent as before, but this is less ideal
+        // Fallback for resetBtn (already exists) - ensure Excel button is also handled in fallback if necessary
         console.warn("Section title H2 not found. Appending reset button to generateBtn's parent as a fallback.");
         if (generateBtn.parentNode && resetBtn.parentNode !== generateBtn.parentNode) {
              generateBtn.parentNode.appendChild(resetBtn);
         } else if (!generateBtn.parentNode) {
             console.error("Could not find parent node of generateBtn to append reset button.");
+        }
+        // Fallback for Excel download button - less ideal, places it with main action buttons
+        let downloadExcelBtn = view.querySelector('#download-schedule-excel-btn');
+        if(!downloadExcelBtn && generateBtn.parentNode){
+            downloadExcelBtn = document.createElement('button');
+            downloadExcelBtn.id = 'download-schedule-excel-btn';
+            downloadExcelBtn.innerHTML = '<i data-lucide="file-spreadsheet" class="h-5 w-5"></i>';
+            downloadExcelBtn.title = '현재 월 일정 엑셀 다운로드';
+            downloadExcelBtn.className = 'btn btn-icon btn-primary p-2 ml-2';
+            generateBtn.parentNode.appendChild(downloadExcelBtn); // Add to same container as generateBtn
+            downloadExcelBtn.addEventListener('click', handleDownloadScheduleExcel);
         }
     }
     
@@ -138,6 +167,82 @@ async function loadInitialScheduleForCurrentDate() {
             renderCalendar(year, month, null);
             displayMessage('일정 로드 중 오류 발생.', 'error');
         }
+    }
+}
+
+async function handleDownloadScheduleExcel() {
+    const year = parseInt(yearInput.value);
+    const month = parseInt(monthInput.value);
+
+    if (!year || !month) {
+        displayMessage('엑셀 다운로드를 위해 년도와 월을 선택해주세요.', 'error');
+        return;
+    }
+
+    displayMessage('엑셀 파일 생성 중...', 'info');
+
+    try {
+        const scheduleObject = await db.getSchedule(year, month);
+        if (!scheduleObject || !scheduleObject.data || scheduleObject.data.length === 0) {
+            displayMessage('다운로드할 생성된 일정이 없습니다.', 'info');
+            return;
+        }
+
+        const participants = await db.getAllParticipants();
+        const participantsMap = new Map();
+        participants.forEach(p => participantsMap.set(p.id, p.name));
+
+        const excelData = [];
+        // 헤더 추가
+        excelData.push(['날짜', '요일', '시간', '구분', '배정인원1', '배정인원2', '고정여부1', '고정여부2']);
+
+        // KOREAN_DAYS 배열은 이미 파일 상단에 정의되어 있음
+        // const KOREAN_DAYS_FOR_EXCEL = ['일', '월', '화', '수', '목', '금', '토'];
+
+
+        scheduleObject.data.forEach(daySchedule => {
+            const dateObj = new Date(daySchedule.date);
+            const dayOfWeekExcel = KOREAN_DAYS[dateObj.getDay()]; // Use KOREAN_DAYS from file scope
+
+            if (daySchedule.timeSlots && daySchedule.timeSlots.length > 0) {
+                daySchedule.timeSlots.forEach(slot => {
+                    const assignedName1 = slot.assigned && slot.assigned[0] ? (participantsMap.get(slot.assigned[0]) || `ID:${slot.assigned[0]}`) : '';
+                    const assignedName2 = slot.assigned && slot.assigned[1] ? (participantsMap.get(slot.assigned[1]) || `ID:${slot.assigned[1]}`) : '';
+                    // isFixedStatus가 정의되지 않았거나, 배열이 아니거나, 해당 인덱스가 없는 경우 고려
+                    const isFixed1 = slot.isFixedStatus && Array.isArray(slot.isFixedStatus) && slot.isFixedStatus[0] ? '고정' : '';
+                    const isFixed2 = slot.isFixedStatus && Array.isArray(slot.isFixedStatus) && slot.isFixedStatus[1] ? '고정' : '';
+
+                    excelData.push([
+                        daySchedule.date, // Use original date string from data
+                        dayOfWeekExcel,
+                        slot.time,
+                        slot.type === 'elementary' ? '초등' : (slot.type === 'middle' ? '중등' : slot.type),
+                        assignedName1,
+                        assignedName2,
+                        isFixed1,
+                        isFixed2
+                    ]);
+                });
+            } else {
+                // excelData.push([daySchedule.date, dayOfWeekExcel, '', '', '', '', '', '']); // Add empty row for days with no slots
+            }
+        });
+
+        if (excelData.length <= 1) { // Header only
+             displayMessage('엑셀로 내보낼 배정 내용이 없습니다.', 'info');
+            return;
+        }
+
+        const worksheet = XLSX.utils.aoa_to_sheet(excelData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, `${year}년 ${month}월`);
+
+        XLSX.writeFile(workbook, `일정_${year}년_${String(month).padStart(2, '0')}월.xlsx`);
+        displayMessage('엑셀 파일이 성공적으로 다운로드되었습니다.', 'success');
+
+    } catch (error) {
+        console.error('Excel download failed:', error);
+        displayMessage(`엑셀 다운로드 실패: ${error.message}`, 'error');
     }
 }
 
