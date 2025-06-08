@@ -1,10 +1,9 @@
 const DB_NAME = 'SchedulePWA_DB';
-const DB_VERSION = 4; // Incremented DB version for schema change
+const DB_VERSION = 3; // Version remains 2 as no schema changes, only helper functions added
 const PARTICIPANTS_STORE_NAME = 'participants';
 const SCHEDULES_STORE_NAME = 'schedules';
 const ATTENDANCE_LOG_STORE_NAME = 'attendanceLog';
 const SCHEDULE_STATE_STORE_NAME = 'scheduleState';
-const MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME = 'monthlyAssignmentCounts';
 
 let db;
 
@@ -46,12 +45,6 @@ export function openDB() {
             }
             if (!tempDb.objectStoreNames.contains(SCHEDULE_STATE_STORE_NAME)) {
                 tempDb.createObjectStore(SCHEDULE_STATE_STORE_NAME, { keyPath: 'category' });
-            }
-            if (!tempDb.objectStoreNames.contains(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME)) {
-                const store = tempDb.createObjectStore(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME, { keyPath: ['year', 'month', 'participantId', 'categoryKey'] });
-                // Add indexes for efficient querying
-                store.createIndex('yearMonthIndex', ['year', 'month'], { unique: false });
-                store.createIndex('participantMonthIndex', ['participantId', 'year', 'month'], { unique: false });
             }
         };
     });
@@ -132,26 +125,6 @@ export async function deleteMultipleParticipants(ids) {
     });
 }
 
-export async function deleteAllParticipants() {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([PARTICIPANTS_STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(PARTICIPANTS_STORE_NAME);
-        const request = store.clear(); // PARTICIPANTS_STORE_NAME의 모든 레코드를 삭제합니다.
-
-        request.onsuccess = () => {
-            console.log('All participants deleted successfully.');
-            resolve();
-        };
-        request.onerror = (event) => {
-            console.error('Error deleting all participants:', event.target.error);
-            reject(event.target.error);
-        };
-    });
-}
-
-// Note: deleteAllParticipants was confirmed missing and will be added in a separate subtask if still needed.
-// The above function is the one being added.
 
 export async function saveSchedule(year, month, scheduleData) {
     const db = await openDB();
@@ -234,47 +207,6 @@ export async function deleteAttendanceLogEntry(id) {
     });
 }
 
-export async function clearAbsencesForPeriod(year, month, day = null) {
-    const db = await openDB();
-    return new Promise((resolve, reject) => {
-        const transaction = db.transaction([ATTENDANCE_LOG_STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(ATTENDANCE_LOG_STORE_NAME);
-
-        let query;
-        if (day) {
-            const dateIndex = store.index('date');
-            const dateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-            query = dateIndex.openCursor(IDBKeyRange.only(dateString));
-        } else {
-            const yearMonthStatusIndex = store.index('yearMonthStatus');
-            query = yearMonthStatusIndex.openCursor(IDBKeyRange.only([year, month, 'absent']));
-        }
-
-        let deleteCount = 0;
-        query.onsuccess = (event) => {
-            const cursor = event.target.result;
-            if (cursor) {
-                if (day) {
-                    if (cursor.value.status === 'absent') {
-                        store.delete(cursor.primaryKey);
-                        deleteCount++;
-                    }
-                } else {
-                    store.delete(cursor.primaryKey);
-                    deleteCount++;
-                }
-                cursor.continue();
-            } else {
-                console.log(`Cleared ${deleteCount} absence logs for ${year}-${month}${day ? '-' + String(day).padStart(2,'0') : ''}.`);
-                resolve(deleteCount);
-            }
-        };
-        query.onerror = (event) => {
-            console.error('Error clearing absences:', event.target.error);
-            reject(event.target.error);
-        };
-    });
-}
 
 export async function getScheduleState(category) {
     const db = await openDB();
@@ -298,80 +230,19 @@ export async function saveScheduleState(category, value) {
     });
 }
 
-export async function saveMonthlyAssignmentCounts(year, month, assignmentData) {
-    const db = await openDB();
-    return new Promise(async (resolve, reject) => {
-        const transaction = db.transaction([MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME], 'readwrite');
-        const store = transaction.objectStore(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME);
-
-        const cursorDeleteRequest = store.index('yearMonthIndex').openCursor(IDBKeyRange.only([year, month]));
-        cursorDeleteRequest.onsuccess = (event) => {
-            const cursor = event.target.result;
-            if (cursor) {
-                store.delete(cursor.primaryKey);
-                cursor.continue();
-            } else {
-                putNewData();
-            }
-        };
-        cursorDeleteRequest.onerror = (event) => {
-            console.error('Error deleting old assignment counts:', event.target.error);
-            reject(event.target.error);
-        };
-
-        function putNewData() {
-            if (assignmentData.length === 0) {
-                resolve();
-                return;
-            }
-            let putPromises = assignmentData.map(item => {
-                return new Promise((res, rej) => {
-                    const fullRecord = { year, month, participantId: item.participantId, categoryKey: item.categoryKey, count: item.count };
-                    const request = store.put(fullRecord);
-                    request.onsuccess = () => res();
-                    request.onerror = (event) => rej(event.target.error);
-                });
-            });
-
-            Promise.all(putPromises)
-                .then(() => resolve())
-                .catch(error => {
-                    console.error('Error saving new assignment counts:', error);
-                    reject(error);
-                });
-        }
-    });
-}
-
-export async function getPreviousMonthAssignmentCounts(currentYear, currentMonth) {
-    let prevYear = currentYear;
-    let prevMonth = currentMonth - 1;
-    if (prevMonth === 0) {
-        prevMonth = 12;
-        prevYear--;
-    }
-
+export async function resetAllScheduleState() {
     const db = await openDB();
     return new Promise((resolve, reject) => {
-        const transaction = db.transaction([MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME], 'readonly');
-        const store = transaction.objectStore(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME);
-        const index = store.index('yearMonthIndex');
-        const request = index.getAll(IDBKeyRange.only([prevYear, prevMonth]));
+        const transaction = db.transaction([SCHEDULE_STATE_STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(SCHEDULE_STATE_STORE_NAME);
+        const request = store.clear(); // scheduleState 스토어의 모든 항목을 삭제
 
         request.onsuccess = () => {
-            const results = request.result;
-            const countsMap = new Map();
-
-            results.forEach(record => {
-                if (!countsMap.has(record.participantId)) {
-                    countsMap.set(record.participantId, new Map());
-                }
-                countsMap.get(record.participantId).set(record.categoryKey, record.count);
-            });
-            resolve(countsMap);
+            console.log('All schedule states have been reset.');
+            resolve();
         };
         request.onerror = (event) => {
-            console.error('Error fetching previous month assignment counts:', event.target.error);
+            console.error('Error resetting schedule states:', event.target.error);
             reject(event.target.error);
         };
     });
