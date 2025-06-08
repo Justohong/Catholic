@@ -78,7 +78,7 @@ export function initScheduleGenerationView(viewElementId) {
         }
         downloadExcelBtn.innerHTML = '<i data-lucide="file-spreadsheet" class="h-5 w-5"></i>';
         downloadExcelBtn.title = '현재 월 일정 엑셀 다운로드';
-        downloadExcelBtn.className = 'btn btn-icon btn-primary p-2'; // ml-2 removed
+        downloadExcelBtn.className = 'btn btn-icon text-sky-600 hover:bg-slate-100 p-2'; // ml-2 removed, btn-primary removed
         // Ensure it's in the wrapper and in the correct order
         if (downloadExcelBtn.parentNode !== actionButtonsWrapper) {
             actionButtonsWrapper.appendChild(downloadExcelBtn);
@@ -107,7 +107,7 @@ export function initScheduleGenerationView(viewElementId) {
             }
             downloadExcelBtn.innerHTML = '<i data-lucide="file-spreadsheet" class="h-5 w-5"></i>';
             downloadExcelBtn.title = '현재 월 일정 엑셀 다운로드';
-            downloadExcelBtn.className = 'btn btn-icon btn-primary p-2'; // No margin, rely on container if it's flex/grid
+            downloadExcelBtn.className = 'btn btn-icon text-sky-600 hover:bg-slate-100 p-2'; // No margin, btn-primary removed
 
             // Reset Button (Fallback)
             // resetBtn should already be defined
@@ -408,9 +408,9 @@ async function handleResetCurrentMonthSchedule() {
         return;
     }
 
-    if (confirm(`${year}년 ${month}월의 모든 생성된 일정과 기록된 결석 현황을 정말로 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
+    if (confirm(`${year}년 ${month}월의 모든 생성된 일정, 기록된 결석 현황, 그리고 순차 배정 시작점을 정말로 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
         try {
-            messageDiv.textContent = '일정 및 결석 기록 초기화 중...';
+            messageDiv.textContent = '일정, 결석 기록, 순차 배정 시작점 초기화 중...';
             messageDiv.className = 'text-blue-600 p-2 rounded-md bg-blue-50';
 
             await db.saveSchedule(year, month, []); // Clear the schedule
@@ -422,18 +422,25 @@ async function handleResetCurrentMonthSchedule() {
                     attendanceClearedCount = clearAbsenceResult.countCleared;
                 } else {
                     console.warn('Failed to clear absences during schedule reset.', clearAbsenceResult.error);
-                    // Optionally notify user of partial success here
                 }
             } catch (attError) {
                 console.error('Error clearing attendance records during schedule reset:', attError);
-                // Optionally notify user of additional error here
+            }
+
+            try {
+                await db.resetAllScheduleState(); // Reset schedule indices
+                console.log('Schedule indices have been reset.');
+            } catch (stateError) {
+                console.error('Error resetting schedule indices during full reset:', stateError);
+                // Optionally, append a warning to the success message or show a separate partial error message
+                messageDiv.textContent += ' (순차 배정 시작점 초기화 실패)';
             }
 
             renderCalendar(year, month, null); // Re-render the calendar, which will show as empty
-            displayMessage(`${year}년 ${month}월 일정 (및 ${attendanceClearedCount}건의 결석 기록)이 성공적으로 초기화되었습니다.`, 'success');
+            displayMessage(`${year}년 ${month}월 일정, ${attendanceClearedCount}건의 결석 기록, 및 순차 배정 시작점이 성공적으로 초기화되었습니다.`, 'success');
         } catch (error) {
             console.error('Error resetting schedule:', error);
-            messageDiv.textContent = `일정 초기화 중 오류 발생: ${error.message || '알 수 없는 오류'}`;
+            messageDiv.textContent = `일정 초기화 중 주요 오류 발생: ${error.message || '알 수 없는 오류'}`;
             messageDiv.className = 'text-red-600 p-2 rounded-md bg-red-50';
         }
     }
