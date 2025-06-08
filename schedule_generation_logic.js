@@ -118,9 +118,50 @@ export async function generateSchedule(year, month) {
         calculatedPrevTotalCounts.set(p.id, calculatePrevTotalCount(p.id));
     });
 
+    const daysInMonth = new Date(year, month, 0).getDate(); // Moved daysInMonth up for totalCoreSlots calc
+
+    let totalCoreSlots = { elementary_6am: 0, middle_7am: 0 };
+    for (let dayIter = 1; dayIter <= daysInMonth; dayIter++) { // Renamed day to dayIter to avoid conflict
+        const dayOfWeekShortIter = DAYS_OF_WEEK[new Date(year, month - 1, dayIter).getDay()];
+        const slotsForDayIter = TIME_SLOT_CONFIG[dayOfWeekShortIter] || [];
+        slotsForDayIter.forEach(slot => {
+            if (slot.categoryKey === CORE_CATEGORIES.elementary) {
+                totalCoreSlots.elementary_6am++;
+            } else if (slot.categoryKey === CORE_CATEGORIES.middle) {
+                totalCoreSlots.middle_7am++;
+            }
+        });
+    }
+
+    const absenteesForSecondRandomRound = new Set();
+    // prevMonthAbsentees is already defined and populated earlier
+    const numberOfAbsentees = prevMonthAbsentees.size;
+
+    const elementaryAbsentees = new Set();
+    const middleAbsentees = new Set();
+    if (numberOfAbsentees > 0) {
+        participants.forEach(p => {
+            if (prevMonthAbsentees.has(p.id)) {
+                if (p.type === '초등') elementaryAbsentees.add(p.id);
+                else if (p.type === '중등') middleAbsentees.add(p.id);
+            }
+        });
+    }
+
+    let elementaryTargetCoreAssignments = 2;
+    if (elementaryAbsentees.size > 0 && (elementaryAbsentees.size * 2) > totalCoreSlots.elementary_6am) {
+        elementaryTargetCoreAssignments = 1;
+        elementaryAbsentees.forEach(id => absenteesForSecondRandomRound.add(id));
+    }
+
+    let middleTargetCoreAssignments = 2;
+    if (middleAbsentees.size > 0 && (middleAbsentees.size * 2) > totalCoreSlots.middle_7am) {
+        middleTargetCoreAssignments = 1;
+        middleAbsentees.forEach(id => absenteesForSecondRandomRound.add(id));
+    }
 
     let scheduleData = [];
-    const daysInMonth = new Date(year, month, 0).getDate();
+    // const daysInMonth = new Date(year, month, 0).getDate(); // Moved up
 
     const assignmentCounts = new Map(); 
     const uniqueCategoryKeys = new Set();
@@ -184,7 +225,11 @@ export async function generateSchedule(year, month) {
             const currentWeekForSlot = getWeekOfMonth(currentDate);
 
             if (slotInfo.sequential) {
-                const absenteesForThisSlotType = originalTargetPool.filter(p => prevMonthAbsentees.has(p.id) && (fixedAbsenteeAssignments.get(p.id) || 0) < 2);
+                const absenteesForThisSlotType = originalTargetPool.filter(p => {
+                    if (!prevMonthAbsentees.has(p.id)) return false;
+                    const targetCount = (p.type === '초등') ? elementaryTargetCoreAssignments : middleTargetCoreAssignments;
+                    return (fixedAbsenteeAssignments.get(p.id) || 0) < targetCount;
+                });
                 
                 for (const absentee of absenteesForThisSlotType) {
                     if (assignedPair.length === 2) break;
@@ -427,6 +472,19 @@ export async function generateSchedule(year, month) {
         }
     } catch (error) {
         console.error(`Failed to save monthly assignment counts for ${year}-${month}:`, error);
+    }
+
+    if (absenteesForSecondRandomRound.size > 0) {
+        console.log(`Participants targeted for a potential 2nd random assignment (due to reduced core slots):`, Array.from(absenteesForSecondRandomRound));
+        // Further logic for actual 2nd round assignment would go here or be handled by a subsequent process.
+        // For now, just logging the identified absentees.
+        // Check if they still need a 2nd assignment based on fixedAbsenteeAssignments
+        absenteesForSecondRandomRound.forEach(absenteeId => {
+            const absentee = participantsMap.get(absenteeId);
+            if (absentee && (fixedAbsenteeAssignments.get(absenteeId) || 0) < 2) {
+                 console.log(`Participant ${absentee.name} (ID: ${absenteeId}, Type: ${absentee.type}) still needs ${2 - (fixedAbsenteeAssignments.get(absenteeId) || 0)} core assignments, targeted for random.`);
+            }
+        });
     }
 
     return scheduleData;

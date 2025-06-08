@@ -215,6 +215,47 @@ export async function deleteAttendanceLogEntry(id) {
     });
 }
 
+export async function clearAbsencesForPeriod(year, month, day = null) {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([ATTENDANCE_LOG_STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(ATTENDANCE_LOG_STORE_NAME);
+
+        let query;
+        if (day) {
+            const dateIndex = store.index('date');
+            const dateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            query = dateIndex.openCursor(IDBKeyRange.only(dateString));
+        } else {
+            const yearMonthStatusIndex = store.index('yearMonthStatus');
+            query = yearMonthStatusIndex.openCursor(IDBKeyRange.only([year, month, 'absent']));
+        }
+
+        let deleteCount = 0;
+        query.onsuccess = (event) => {
+            const cursor = event.target.result;
+            if (cursor) {
+                if (day) {
+                    if (cursor.value.status === 'absent') {
+                        store.delete(cursor.primaryKey);
+                        deleteCount++;
+                    }
+                } else {
+                    store.delete(cursor.primaryKey);
+                    deleteCount++;
+                }
+                cursor.continue();
+            } else {
+                console.log(`Cleared ${deleteCount} absence logs for ${year}-${month}${day ? '-' + String(day).padStart(2,'0') : ''}.`);
+                resolve(deleteCount);
+            }
+        };
+        query.onerror = (event) => {
+            console.error('Error clearing absences:', event.target.error);
+            reject(event.target.error);
+        };
+    });
+}
 
 export async function getScheduleState(category) {
     const db = await openDB();
