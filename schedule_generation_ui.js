@@ -1,5 +1,6 @@
 import * as logic from './schedule_generation_logic.js';
 import * as db from './db.js';
+import * as attendanceLogic from './attendance_logic.js';
 
 let yearInput, monthInput, generateBtn, calendarDisplay, messageDiv, viewExistingScheduleBtn;
 
@@ -288,14 +289,33 @@ async function handleResetCurrentMonthSchedule() {
         return;
     }
 
-    if (confirm(`${year}년 ${month}월의 모든 생성된 일정을 정말로 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
+    if (confirm(`${year}년 ${month}월의 모든 생성된 일정과 기록된 결석 현황을 정말로 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
         try {
-            await db.saveSchedule(year, month, []); // Save an empty array to clear the schedule
+            messageDiv.textContent = '일정 및 결석 기록 초기화 중...';
+            messageDiv.className = 'text-blue-600 p-2 rounded-md bg-blue-50';
+
+            await db.saveSchedule(year, month, []); // Clear the schedule
+
+            let attendanceClearedCount = 0;
+            try {
+                const clearAbsenceResult = await attendanceLogic.clearAllAbsencesInView(year, month, null); // Clear all absences for the month
+                if (clearAbsenceResult.success) {
+                    attendanceClearedCount = clearAbsenceResult.countCleared;
+                } else {
+                    console.warn('Failed to clear absences during schedule reset.', clearAbsenceResult.error);
+                    // Optionally notify user of partial success here
+                }
+            } catch (attError) {
+                console.error('Error clearing attendance records during schedule reset:', attError);
+                // Optionally notify user of additional error here
+            }
+
             renderCalendar(year, month, null); // Re-render the calendar, which will show as empty
-            displayMessage(`${year}년 ${month}월 일정이 성공적으로 초기화되었습니다.`, 'success');
+            displayMessage(`${year}년 ${month}월 일정 (및 ${attendanceClearedCount}건의 결석 기록)이 성공적으로 초기화되었습니다.`, 'success');
         } catch (error) {
             console.error('Error resetting schedule:', error);
-            displayMessage('일정 초기화 중 오류가 발생했습니다.', 'error');
+            messageDiv.textContent = `일정 초기화 중 오류 발생: ${error.message || '알 수 없는 오류'}`;
+            messageDiv.className = 'text-red-600 p-2 rounded-md bg-red-50';
         }
     }
 }
