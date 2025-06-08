@@ -20,29 +20,29 @@ export function renderMasterDataView(containerId, onAdd, onExcelUpload, onDelete
             <form id="addParticipantForm" class="space-y-4">
                 <div class="form-group">
                     <label for="name" class="text-sm font-medium text-slate-700">이름:</label>
-                    <input type="text" id="name" name="name" required class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm">
+                    <input type="text" id="name" name="name" required class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3">
                 </div>
                 <div class="form-group">
                     <label for="gender" class="text-sm font-medium text-slate-700">성별:</label>
-                    <select id="gender" name="gender" required class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm">
+                    <select id="gender" name="gender" required class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3">
                         <option value="남">남</option>
                         <option value="여">여</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label for="type" class="text-sm font-medium text-slate-700">초중구분:</label>
-                    <select id="type" name="type" required class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm">
+                    <select id="type" name="type" required class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3">
                         <option value="초등">초등</option>
                         <option value="중등">중등</option>
                     </select>
                 </div>
                 <div class="form-group">
                     <label for="studentPhone" class="text-sm font-medium text-slate-700">학생 연락처:</label>
-                    <input type="tel" id="studentPhone" name="studentPhone" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm" placeholder="하이픈 없이 숫자만">
+                    <input type="tel" id="studentPhone" name="studentPhone" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3" placeholder="하이픈 없이 숫자만">
                 </div>
                 <div class="form-group">
                     <label for="parentPhone" class="text-sm font-medium text-slate-700">부모 연락처:</label>
-                    <input type="tel" id="parentPhone" name="parentPhone" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm" placeholder="하이픈 없이 숫자만">
+                    <input type="tel" id="parentPhone" name="parentPhone" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3" placeholder="하이픈 없이 숫자만">
                 </div>
                 <button type="submit" class="btn btn-primary w-full sm:w-auto">
                     <i data-lucide="user-plus" class="mr-2 h-5 w-5"></i>추가하기
@@ -91,29 +91,29 @@ export function renderMasterDataView(containerId, onAdd, onExcelUpload, onDelete
                     <input type="hidden" id="editParticipantId" name="id">
                     <div class="form-group">
                         <label for="editName" class="text-sm font-medium text-slate-700">이름:</label>
-                        <input type="text" id="editName" name="name" required class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm">
+                        <input type="text" id="editName" name="name" required class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3">
                     </div>
                     <div class="form-group">
                         <label for="editGender" class="text-sm font-medium text-slate-700">성별:</label>
-                        <select id="editGender" name="gender" required class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm">
+                        <select id="editGender" name="gender" required class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3">
                             <option value="남">남</option>
                             <option value="여">여</option>
                         </select>
                     </div>
                     <div class="form-group">
                         <label for="editType" class="text-sm font-medium text-slate-700">초중구분:</label>
-                        <select id="editType" name="type" required class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm">
+                        <select id="editType" name="type" required class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3">
                             <option value="초등">초등</option>
                             <option value="중등">중등</option>
                         </select>
                     </div>
                 <div class="form-group">
                     <label for="editStudentPhone" class="text-sm font-medium text-slate-700">학생 연락처:</label>
-                    <input type="tel" id="editStudentPhone" name="studentPhone" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm" placeholder="하이픈 없이 숫자만">
+                    <input type="tel" id="editStudentPhone" name="studentPhone" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3" placeholder="하이픈 없이 숫자만">
                 </div>
                 <div class="form-group">
                     <label for="editParentPhone" class="text-sm font-medium text-slate-700">부모 연락처:</label>
-                    <input type="tel" id="editParentPhone" name="parentPhone" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm" placeholder="하이픈 없이 숫자만">
+                    <input type="tel" id="editParentPhone" name="parentPhone" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3" placeholder="하이픈 없이 숫자만">
                 </div>
                     <div class="flex justify-end space-x-2">
                         <button type="button" id="cancelEditBtn" class="btn btn-secondary">취소</button>
