@@ -190,7 +190,38 @@ export async function generateSchedule(year, month) {
     }
 
     let assignedCoreSlotsCount = { elementary_6am: 0, middle_7am: 0 };
-    const absenteesAssignedInMainLoop = new Set();
+    const absenteesAssignedInMainLoop = new Set(); // Reactivated: populated in A-1/A-2
+
+    // B-1 Pre-selection of candidates (general participants sorted by priority)
+    let generalParticipantsForB1 = participants.filter(p =>
+        p.isActive &&
+        !prevMonthAbsentees.has(p.id)
+    );
+
+    generalParticipantsForB1.sort((a,b) => compareB1Participants(a,b,calculatedPrevTotalCounts, prevMonthAssignmentCounts, CORE_CATEGORIES));
+
+    const b1CoreSelectedElementary = [];
+    const b1CoreSelectedMiddle = [];
+
+    const numElemCoreSlotsToFill_B1 = totalCoreSlots.elementary_6am;
+    const numMidCoreSlotsToFill_B1 = totalCoreSlots.middle_7am;
+
+    for (const p of generalParticipantsForB1) {
+        if (p.type === '초등' && b1CoreSelectedElementary.length < numElemCoreSlotsToFill_B1 * 2) {
+            b1CoreSelectedElementary.push(p);
+        } else if (p.type === '중등' && b1CoreSelectedMiddle.length < numMidCoreSlotsToFill_B1 * 2) {
+            b1CoreSelectedMiddle.push(p);
+        }
+    }
+
+    // Shuffle the pre-selected B-1 candidate pools to randomize order among equally prioritized candidates
+    if (b1CoreSelectedElementary.length > 1) {
+        b1CoreSelectedElementary.sort(() => Math.random() - 0.5);
+    }
+    if (b1CoreSelectedMiddle.length > 1) {
+        b1CoreSelectedMiddle.sort(() => Math.random() - 0.5);
+    }
+    console.log("B-1 Pre-selection (shuffled): Elementary candidates:", b1CoreSelectedElementary.length, "Middle candidates:", b1CoreSelectedMiddle.length);
 
     let scheduleData = [];
 
@@ -292,7 +323,9 @@ export async function generateSchedule(year, month) {
                                 else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++;
                                 attemptA1Successful = true;
                                 absenteesAssignedInMainLoop.add(absenteeToAssign.id);
-                                if(partnerToAssign && prevMonthAbsentees.has(partnerToAssign.id)) absenteesAssignedInMainLoop.add(partnerToAssign.id);
+                                if (partnerToAssign && prevMonthAbsentees.has(partnerToAssign.id)) { // Add partner only if they are also an absentee
+                                    absenteesAssignedInMainLoop.add(partnerToAssign.id);
+                                }
                                 break;
                             }
                         }
@@ -345,67 +378,65 @@ export async function generateSchedule(year, month) {
                                 if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++;
                                 else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++;
                                 absenteesAssignedInMainLoop.add(absenteeToAssign.id);
-                                if(partnerToAssign && prevMonthAbsentees.has(partnerToAssign.id)) absenteesAssignedInMainLoop.add(partnerToAssign.id);
+                                if (partnerToAssign && prevMonthAbsentees.has(partnerToAssign.id)) { // Add partner only if they are also an absentee
+                                    absenteesAssignedInMainLoop.add(partnerToAssign.id);
+                                }
                                 break;
                             }
                         }
                     }
                 } // End of A-2
 
-                let attemptB1Successful = false;
-                if (assignedPair.length < 2 && (isElementaryCoreSlot || isMiddleCoreSlot)) { // B-1
-                    const b1CandidatePool = originalTargetPool.filter(p => {
-                        return !prevMonthAbsentees.has(p.id) &&
-                               !absenteesAssignedInMainLoop.has(p.id) &&
-                               (assignmentCounts.get(p.id)?.get('total') || 0) === 0 &&
-                               !dailyAssignments.has(p.id) &&
-                               !participantWeeklyAssignments.get(p.id)?.has(currentWeekForSlot);
-                    });
-
-                    if (b1CandidatePool.length >= 2) {
-                        const sortedB1Candidates = b1CandidatePool
-                            .sort((a,b) => compareB1Participants(a,b,calculatedPrevTotalCounts, prevMonthAssignmentCounts, CORE_CATEGORIES));
-
-                        let availableB1ForThisSlot = sortedB1Candidates.filter(p =>
+                // B-1: On-the-fly random pairing from pre-selected pool for core slots if not filled by A-steps
+                if (assignedPair.length < 2 && (isElementaryCoreSlot || isMiddleCoreSlot)) {
+                    const typeKeyB1 = isElementaryCoreSlot ? 'elementary' : 'middle';
+                    const b1CandidatePoolForSlot = (typeKeyB1 === 'elementary' ? b1CoreSelectedElementary : b1CoreSelectedMiddle)
+                        .filter(p =>
+                            (assignmentCounts.get(p.id)?.get('total') || 0) === 0 && // Must be their first assignment this month
                             !dailyAssignments.has(p.id) &&
                             !participantWeeklyAssignments.get(p.id)?.has(currentWeekForSlot) &&
-                            (assignmentCounts.get(p.id)?.get('total') || 0) === 0
+                            !absenteesAssignedInMainLoop.has(p.id) // Ensure not assigned in A-steps (though `total === 0` should mostly cover this)
                         );
 
-                        if (availableB1ForThisSlot.length >=2) {
-                            availableB1ForThisSlot.sort(() => Math.random() - 0.5);
+                    if (b1CandidatePoolForSlot.length >= 2) {
+                        b1CandidatePoolForSlot.sort(() => Math.random() - 0.5); // Shuffle for random pairing for this specific slot
 
-                            let p1_B1 = null, p2_B1 = null;
-                            for (let i = 0; i < availableB1ForThisSlot.length; i++) {
-                                const cand1 = availableB1ForThisSlot[i];
-                                if (dailyAssignments.has(cand1.id) || participantWeeklyAssignments.get(cand1.id)?.has(currentWeekForSlot) || (assignmentCounts.get(cand1.id)?.get('total') || 0) !== 0) continue;
+                        let p1_B1 = null, p2_B1 = null;
+                        for (let i = 0; i < b1CandidatePoolForSlot.length; i++) {
+                            const cand1 = b1CandidatePoolForSlot[i];
+                            // Re-check conditions as they might have been assigned in a previous iteration for a different slot (not possible with current loop structure but good practice)
+                            if (dailyAssignments.has(cand1.id) ||
+                                participantWeeklyAssignments.get(cand1.id)?.has(currentWeekForSlot) ||
+                                (assignmentCounts.get(cand1.id)?.get('total') || 0) !== 0) continue;
 
-                                for (let j = i + 1; j < availableB1ForThisSlot.length; j++) {
-                                    const cand2 = availableB1ForThisSlot[j];
-                                    if (dailyAssignments.has(cand2.id) || participantWeeklyAssignments.get(cand2.id)?.has(currentWeekForSlot) || (assignmentCounts.get(cand2.id)?.get('total') || 0) !== 0) continue;
+                            for (let j = i + 1; j < b1CandidatePoolForSlot.length; j++) {
+                                const cand2 = b1CandidatePoolForSlot[j];
+                                if (dailyAssignments.has(cand2.id) ||
+                                    participantWeeklyAssignments.get(cand2.id)?.has(currentWeekForSlot) ||
+                                    (assignmentCounts.get(cand2.id)?.get('total') || 0) !== 0) continue;
 
-                                    if (cand1.gender === cand2.gender) {
-                                        p1_B1 = cand1;
-                                        p2_B1 = cand2;
-                                        break;
-                                    }
+                                if (cand1.gender === cand2.gender) {
+                                    p1_B1 = cand1;
+                                    p2_B1 = cand2;
+                                    break;
                                 }
-                                if (p1_B1 && p2_B1) break;
                             }
+                            if (p1_B1 && p2_B1) break;
+                        }
 
-                            if (p1_B1 && p2_B1) {
-                                assignedPair = [p1_B1.id, p2_B1.id];
-                                fixedAssigneeId = null;
-                                attemptB1Successful = true;
-                                if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++;
-                                else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++;
-                            }
+                        if (p1_B1 && p2_B1) {
+                            assignedPair = [p1_B1.id, p2_B1.id];
+                            fixedAssigneeId = null;
+                            // attemptB1Successful = true; // Not strictly needed if B-2 doesn't rely on it
+                            if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++;
+                            else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++;
                         }
                     }
-                } // End of B-1
+                } // End of B-1 logic
 
                 if (assignedPair.length < 2) { // B-2 or General Sequential (non-core)
-                    if (!attemptB1Successful && (isElementaryCoreSlot || isMiddleCoreSlot)) { // B-2
+                    // The check `!attemptB1Successful` is removed as B-1's success is implicit if assignedPair is filled.
+                    if (isElementaryCoreSlot || isMiddleCoreSlot) { // B-2: Try to fill core slots if A & B-1 failed
                         const coreCategoryKeyForSlot = slotInfo.categoryKey;
                         const remainingCoreSlotsForType = totalCoreSlots[coreCategoryKeyForSlot] - assignedCoreSlotsCount[coreCategoryKeyForSlot];
 
