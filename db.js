@@ -1,5 +1,5 @@
 const DB_NAME = 'SchedulePWA_DB';
-const DB_VERSION = 4; // Corrected DB version
+const DB_VERSION = 4; // Updated DB version
 const PARTICIPANTS_STORE_NAME = 'participants';
 const SCHEDULES_STORE_NAME = 'schedules';
 const ATTENDANCE_LOG_STORE_NAME = 'attendanceLog';
@@ -42,12 +42,12 @@ export function openDB() {
                 const attendanceStore = tempDb.createObjectStore(ATTENDANCE_LOG_STORE_NAME, { keyPath: 'id', autoIncrement: true });
                 attendanceStore.createIndex('participantMonth', ['participantId', 'year', 'month'], { unique: false });
                 attendanceStore.createIndex('date', 'date', { unique: false });
-                 attendanceStore.createIndex('yearMonthStatus', ['year', 'month', 'status'], { unique: false });
+                attendanceStore.createIndex('yearMonthStatus', ['year', 'month', 'status'], { unique: false });
             }
             if (!tempDb.objectStoreNames.contains(SCHEDULE_STATE_STORE_NAME)) {
                 tempDb.createObjectStore(SCHEDULE_STATE_STORE_NAME, { keyPath: 'category' });
             }
-            // Added schema for MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME
+            // Schema for MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME
             if (!tempDb.objectStoreNames.contains(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME)) {
                 const store = tempDb.createObjectStore(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME, { keyPath: ['year', 'month', 'participantId', 'categoryKey'] });
                 store.createIndex('yearMonthIndex', ['year', 'month'], { unique: false });
@@ -74,7 +74,7 @@ export async function getAllParticipants() {
         const transaction = db.transaction([PARTICIPANTS_STORE_NAME], 'readonly');
         const store = transaction.objectStore(PARTICIPANTS_STORE_NAME);
         const request = store.getAll();
-        request.onsuccess = () => resolve(request.result);
+        request.onsuccess = () => resolve(request.result || []);
         request.onerror = (event) => reject(event.target.error);
     });
 }
@@ -127,13 +127,27 @@ export async function deleteMultipleParticipants(ids) {
         Promise.all(deletePromises)
             .then(() => resolve())
             .catch(error => reject(error));
-        transaction.oncomplete = () => resolve();
+        transaction.oncomplete = () => resolve(); // Resolve after all delete operations in transaction are done
         transaction.onerror = (event) => reject(event.target.error);
     });
 }
 
-// deleteAllParticipants, saveMonthlyAssignmentCounts, getPreviousMonthAssignmentCounts
-// are not part of this specific overwrite, they are handled by other subtasks or already exist if not overwritten here.
+export async function deleteAllParticipants() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([PARTICIPANTS_STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(PARTICIPANTS_STORE_NAME);
+        const request = store.clear();
+        request.onsuccess = () => {
+            console.log('All participants deleted successfully.');
+            resolve();
+        };
+        request.onerror = (event) => {
+            console.error('Error deleting all participants:', event.target.error);
+            reject(event.target.error);
+        };
+    });
+}
 
 export async function saveSchedule(year, month, scheduleData) {
     const db = await openDB();
@@ -142,6 +156,17 @@ export async function saveSchedule(year, month, scheduleData) {
         const store = transaction.objectStore(SCHEDULES_STORE_NAME);
         const request = store.put({ year, month, data: scheduleData });
         request.onsuccess = () => resolve();
+        request.onerror = (event) => reject(event.target.error);
+    });
+}
+
+export async function getAllSchedules() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SCHEDULES_STORE_NAME], 'readonly');
+        const store = transaction.objectStore(SCHEDULES_STORE_NAME);
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result || []);
         request.onerror = (event) => reject(event.target.error);
     });
 }
@@ -164,6 +189,17 @@ export async function addAttendanceLogEntry(entry) {
         const store = transaction.objectStore(ATTENDANCE_LOG_STORE_NAME);
         const request = store.add(entry);
         request.onsuccess = () => resolve(request.result);
+        request.onerror = (event) => reject(event.target.error);
+    });
+}
+
+export async function getAllAttendanceLogs() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([ATTENDANCE_LOG_STORE_NAME], 'readonly');
+        const store = transaction.objectStore(ATTENDANCE_LOG_STORE_NAME);
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result || []);
         request.onerror = (event) => reject(event.target.error);
     });
 }
@@ -257,6 +293,17 @@ export async function clearAbsencesForPeriod(year, month, day = null) {
     });
 }
 
+export async function getAllScheduleStates() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SCHEDULE_STATE_STORE_NAME], 'readonly');
+        const store = transaction.objectStore(SCHEDULE_STATE_STORE_NAME);
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = (event) => reject(event.target.error);
+    });
+}
+
 export async function getScheduleState(category) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -297,60 +344,39 @@ export async function resetAllScheduleState() {
     });
 }
 
-// Functions related to MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME would be here if they were part of this base
-// For this subtask, we are only ensuring DB_VERSION and the onupgradeneeded part are correct.
-// The actual functions saveMonthlyAssignmentCounts and getPreviousMonthAssignmentCounts were added in a previous subtask
-// and should be restored if this overwrite removes them.
-// However, the read file showed they were NOT present, so this overwrite is based on that.
-// If they ARE needed, they must be explicitly added back.
-// Based on subtask 20231206T093515Z, those functions should be present.
-// This means the `restore_file` to DB_VERSION=3 was too aggressive.
-// The correct approach is to take the current file content (which has DB_VERSION=3 but *should* have those functions)
-// and ONLY update DB_VERSION and onupgradeneeded.
+export async function getAllMonthlyAssignmentCounts() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME], 'readonly');
+        const store = transaction.objectStore(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME);
+        const request = store.getAll();
+        request.onsuccess = () => resolve(request.result || []);
+        request.onerror = (event) => reject(event.target.error);
+    });
+}
 
-// Re-evaluating: The previous `read_files` output (after restore) showed DB_VERSION 3
-// and did NOT show saveMonthlyAssignmentCounts or getPreviousMonthAssignmentCounts.
-// It DID show resetAllScheduleState.
-// The goal is to set DB_VERSION to 4 and ensure MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME schema is there.
-// The functions saveMonthlyAssignmentCounts and getPreviousMonthAssignmentCounts were added when version was set to 4.
-// So, they should be added back if they are missing now.
-
-// The current file content from the last read_files() is the base.
-// I will add the MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME constant, update DB_VERSION,
-// add the onupgradeneeded logic for the new store,
-// and then re-add saveMonthlyAssignmentCounts and getPreviousMonthAssignmentCounts
-// to ensure they are present with DB_VERSION 4. deleteAllParticipants also seems to be missing.
-
-// The most robust way is to construct the file from what we know should be there.
-// The file from the previous step (20231206T110638Z) had resetAllScheduleState.
-// The file from 20231206T093515Z had saveMonthlyAssignmentCounts & getPreviousMonthAssignmentCounts & MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME schema & DB_VERSION 4
-// The file from 20231206T105103Z had deleteAllParticipants.
-
-// Correct approach: take the most complete version that had DB_VERSION=4 and its schema,
-// then ensure other functions like deleteAllParticipants and resetAllScheduleState are also present.
-// The file read in this step (20231206T112614Z) is the state from DB_VERSION=3.
-// I will use THIS content, set DB_VERSION=4, add MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME and its schema,
-// AND re-add saveMonthlyAssignmentCounts, getPreviousMonthAssignmentCounts.
-// deleteAllParticipants will be handled separately if still missing.
-
-// Adding the functions back as they were defined in subtask 20231206T093515Z:
 export async function saveMonthlyAssignmentCounts(year, month, assignmentData) {
     const db = await openDB();
     return new Promise(async (resolve, reject) => {
         const transaction = db.transaction([MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME], 'readwrite');
         const store = transaction.objectStore(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME);
 
-        const cursorDeleteRequest = store.index('yearMonthIndex').openCursor(IDBKeyRange.only([year, month]));
-        cursorDeleteRequest.onsuccess = (event) => {
+        const deleteCursorRequest = store.index('yearMonthIndex').openCursor(IDBKeyRange.only([year, month]));
+        let deleteCount = 0;
+
+        deleteCursorRequest.onsuccess = (event) => {
             const cursor = event.target.result;
             if (cursor) {
                 store.delete(cursor.primaryKey);
+                deleteCount++;
                 cursor.continue();
             } else {
+                // All old records for the month are deleted
+                console.log(`Deleted ${deleteCount} old assignment count entries for ${year}-${month}.`);
                 putNewData();
             }
         };
-        cursorDeleteRequest.onerror = (event) => {
+        deleteCursorRequest.onerror = (event) => {
             console.error('Error deleting old assignment counts:', event.target.error);
             reject(event.target.error);
         };
@@ -360,22 +386,37 @@ export async function saveMonthlyAssignmentCounts(year, month, assignmentData) {
                 resolve();
                 return;
             }
-            let putPromises = assignmentData.map(item => {
-                return new Promise((res, rej) => {
-                    const fullRecord = { year, month, participantId: item.participantId, categoryKey: item.categoryKey, count: item.count };
-                    const request = store.put(fullRecord);
-                    request.onsuccess = () => res();
-                    request.onerror = (event) => rej(event.target.error);
-                });
+            let putCounter = 0;
+            assignmentData.forEach(item => {
+                const fullRecord = { year, month, participantId: item.participantId, categoryKey: item.categoryKey, count: item.count };
+                const request = store.put(fullRecord);
+                request.onsuccess = () => {
+                    putCounter++;
+                    if (putCounter === assignmentData.length) {
+                        resolve();
+                    }
+                };
+                request.onerror = (event) => {
+                    // Don't reject outer promise on single put error, but log it
+                    console.error('Error putting assignment count item:', event.target.error, fullRecord);
+                    putCounter++; // Still count it to allow Promise.all like behavior
+                     if (putCounter === assignmentData.length) {
+                        // If all attempts are done, resolve, but errors have been logged.
+                        // Or, one could choose to reject here if any put fails.
+                        resolve();
+                    }
+                };
             });
-
-            Promise.all(putPromises)
-                .then(() => resolve())
-                .catch(error => {
-                    console.error('Error saving new assignment counts:', error);
-                    reject(error);
-                });
         }
+        // Transaction handlers
+        transaction.oncomplete = () => {
+            console.log(`Transaction saveMonthlyAssignmentCounts for ${year}-${month} completed.`);
+            // Resolve is handled by individual put operations success or final cursor step
+        };
+        transaction.onerror = (event) => {
+            console.error('Transaction error in saveMonthlyAssignmentCounts:', event.target.error);
+            reject(event.target.error);
+        };
     });
 }
 
@@ -386,18 +427,15 @@ export async function getPreviousMonthAssignmentCounts(currentYear, currentMonth
         prevMonth = 12;
         prevYear--;
     }
-
     const db = await openDB();
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME], 'readonly');
         const store = transaction.objectStore(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME);
         const index = store.index('yearMonthIndex');
         const request = index.getAll(IDBKeyRange.only([prevYear, prevMonth]));
-
         request.onsuccess = () => {
-            const results = request.result;
+            const results = request.result || [];
             const countsMap = new Map();
-
             results.forEach(record => {
                 if (!countsMap.has(record.participantId)) {
                     countsMap.set(record.participantId, new Map());

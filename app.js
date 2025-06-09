@@ -2,6 +2,7 @@ import { initMasterDataModule } from './master_data_logic.js';
 import { initScheduleGenerationView } from './schedule_generation_ui.js';
 import { initAttendanceView } from './attendance_ui.js';
 import { initShareView } from './share_ui.js';
+import { initSettingsView } from './settings_ui.js'; // New import
 
 document.addEventListener('DOMContentLoaded', () => {
     if ('serviceWorker' in navigator) {
@@ -48,6 +49,8 @@ document.addEventListener('DOMContentLoaded', () => {
             initAttendanceView('attendanceView');
         } else if (viewId === 'shareView') {
             initShareView('shareView');
+        } else if (viewId === 'settingsView') {
+            initSettingsView('settingsView'); // New view initialization
         }
     }
 
