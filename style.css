@@ -138,7 +138,8 @@ label {
 /* Schedule Generation Calendar Styles (Preserved) */
 #schedule-calendar-display table {
     width: 100%;
-    table-layout: auto; /* Changed from fixed */
+    table-layout: fixed; /* Changed from fixed */
+    border-collapse: collapse; /* Added for explicitness */
     /* min-width: 800px; /* Removed or commented out */
 }
 #schedule-calendar-display td {

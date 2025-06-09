@@ -300,14 +300,17 @@ function renderCalendar(year, month, scheduleData) {
     const firstDayOfMonth = new Date(year, month - 1, 1).getDay(); // 0 (Sun) - 6 (Sat)
 
     const table = document.createElement('table');
-    table.className = 'min-w-full divide-y divide-slate-200 border border-slate-200';
+    // min-w-full removed, width: 100% will be handled by style.css
+    table.className = 'divide-y divide-slate-200 border border-slate-200';
 
     const thead = document.createElement('thead');
     thead.className = 'bg-slate-50';
     const headerRow = document.createElement('tr');
     KOREAN_DAYS.forEach(day => {
         const th = document.createElement('th');
-        th.className = 'px-3 py-1 text-center text-xs font-medium text-slate-500 uppercase tracking-wider';
+        // px-3 changed to px-2 for less horizontal padding
+        th.className = 'px-2 py-1 text-center text-xs font-medium text-slate-500 uppercase tracking-wider';
+        th.style.width = `${100 / 7}%`; // Distribute width equally
         th.textContent = day;
         headerRow.appendChild(th);
     });

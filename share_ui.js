@@ -177,10 +177,12 @@ function renderShareCalendar(year, month, scheduleDays, participantsList) {
                     dayNumberDiv.style.fontWeight = '700'; // font-bold
                     dayNumberDiv.style.lineHeight = '1'; // leading-none
                     dayNumberDiv.style.padding = '0px'; // Reset padding
+                    dayNumberDiv.classList.add('today-number-highlight'); // 식별용 클래스 추가
 
                     cell.style.borderColor = '#7dd3fc'; // sky-300
                     cell.style.borderWidth = '2px';
                     cell.style.borderStyle = 'solid';
+                    cell.classList.add('today-cell-highlight'); // 식별용 클래스 추가
                 }
 
                 const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
@@ -312,7 +314,31 @@ async function handleDownload() {
                     clonedCalendarContainer.style.margin = '0';
                     clonedCalendarContainer.style.padding = '0';
                 }
-                // 스타일 변경 없이 원본 그대로 유지
+
+                // '오늘' 강조 스타일 제거 로직 추가
+                const todayCellClones = documentClone.querySelectorAll('.today-cell-highlight');
+                todayCellClones.forEach(cellClone => {
+                    cellClone.style.borderColor = '#e2e8f0'; // 기본 slate-200 색상
+                    cellClone.style.borderWidth = '1px';   // 기본 테두리 두께
+                    // cellClone.style.borderStyle = 'solid'; // 이미 solid일 것이므로 생략 가능
+                });
+
+                const todayNumberClones = documentClone.querySelectorAll('.today-number-highlight');
+                todayNumberClones.forEach(numDivClone => {
+                    numDivClone.style.color = '#64748b'; // 기본 slate-500 색상 (날짜 숫자)
+                    numDivClone.style.backgroundColor = 'transparent'; // 배경 없음
+                    numDivClone.style.borderRadius = ''; // 원형 배경 제거
+                    numDivClone.style.width = 'auto'; // 자동 너비
+                    numDivClone.style.height = 'auto'; // 자동 높이
+                    numDivClone.style.display = 'block'; // flex 해제, 기본 block으로
+                    numDivClone.style.textAlign = 'right'; // 원래 정렬 유지
+                    numDivClone.style.marginLeft = ''; // 자동 마진 해제
+                    numDivClone.style.fontWeight = '600'; // 기본 font-semibold
+                    numDivClone.style.lineHeight = '';    // 기본값 사용
+                    numDivClone.style.padding = ''; // 기본 패딩 사용
+                    // numDivClone.style.paddingRight = '0.25rem'; // 원래 있던 패딩 유지 가능
+                    // numDivClone.style.paddingLeft = '0.25rem';
+                });
             }
         });
 
