@@ -1,10 +1,24 @@
 import * as logic from './schedule_generation_logic.js';
 import * as db from './db.js';
 import * as attendanceLogic from './attendance_logic.js';
+import * as inspectionLogic from './inspection_logic.js'; // 새로 추가
 
 let yearInput, monthInput, generateBtn, calendarDisplay, messageDiv, viewExistingScheduleBtn;
+// Inspection Modal related variables
+let inspectionModal, closeInspectionModalBtnTop, closeInspectionModalBtnBottom, inspectionModalMessageDiv, inspectionTableHeaderRow, inspectionTableBody;
+let inspectionModalListenersAttached = false; // Prevents duplicate listener attachment
 
 const KOREAN_DAYS = ['일', '월', '화', '수', '목', '금', '토'];
+
+const CATEGORY_DISPLAY_NAMES = {
+    'elementary_6am': '초등6시',
+    'elementary_random': '초등랜덤',
+    'middle_7am': '중등7시',
+    'middle_random': '중등랜덤',
+    'elementary_random_fallback': '초등랜덤(F)',
+    'middle_random_fallback': '중등랜덤(F)'
+    // Add other categoryKey mappings as needed
+};
 
 export function initScheduleGenerationView(viewElementId) {
     const view = document.getElementById(viewElementId);
@@ -85,12 +99,29 @@ export function initScheduleGenerationView(viewElementId) {
         }
 
         // Reset Button (already found or created)
-        // Ensure it's in the wrapper and after the download button
+        // Ensure downloadExcelBtn is in the wrapper (it should be by now)
+        if (downloadExcelBtn.parentNode !== actionButtonsWrapper) {
+            actionButtonsWrapper.appendChild(downloadExcelBtn);
+        }
+
+        // Inspect Schedule Button
+        let inspectScheduleBtn = view.querySelector('#inspect-schedule-btn');
+        if (!inspectScheduleBtn) {
+            inspectScheduleBtn = document.createElement('button');
+            inspectScheduleBtn.id = 'inspect-schedule-btn';
+        }
+        inspectScheduleBtn.innerHTML = '<i data-lucide="clipboard-list" class="h-5 w-5"></i>';
+        inspectScheduleBtn.title = '월별 배정 현황 점검';
+        inspectScheduleBtn.className = 'btn btn-icon btn-secondary p-2'; // Using secondary as an example
+
+        // Append Inspect button after Excel button
+        actionButtonsWrapper.appendChild(inspectScheduleBtn);
+
+        // Ensure Reset button is last
         if (resetBtn.parentNode !== actionButtonsWrapper) {
             actionButtonsWrapper.appendChild(resetBtn);
-        } else { // If both were already in wrapper, ensure order
-            actionButtonsWrapper.appendChild(downloadExcelBtn); // download first
-            actionButtonsWrapper.appendChild(resetBtn);      // then reset
+        } else { // If resetBtn was already there, ensure it's last by re-appending
+            actionButtonsWrapper.appendChild(resetBtn);
         }
 
     } else {
@@ -120,6 +151,40 @@ export function initScheduleGenerationView(viewElementId) {
         } else {
             console.error("Fallback container (generateBtn.parentNode) not found.");
         }
+    }
+
+    // Modal elements and listeners (ensure this block runs only once)
+    if (!inspectionModalListenersAttached) {
+        inspectionModal = document.getElementById('scheduleInspectionModal');
+        closeInspectionModalBtnTop = document.getElementById('closeInspectionModalBtn');
+        closeInspectionModalBtnBottom = document.getElementById('closeInspectionModalBtnBottom');
+        inspectionModalMessageDiv = document.getElementById('inspectionModalMessage');
+        inspectionTableHeaderRow = document.getElementById('inspection-table-header-row');
+        inspectionTableBody = document.getElementById('inspection-table-body');
+
+        if (inspectionModal) {
+            if (closeInspectionModalBtnTop) {
+                closeInspectionModalBtnTop.addEventListener('click', closeScheduleInspectionModal);
+            }
+            if (closeInspectionModalBtnBottom) {
+                closeInspectionModalBtnBottom.addEventListener('click', closeScheduleInspectionModal);
+            }
+            // Close modal on background click
+            inspectionModal.addEventListener('click', (event) => {
+                if (event.target === inspectionModal) {
+                    closeScheduleInspectionModal();
+                }
+            });
+        }
+        inspectionModalListenersAttached = true;
+    }
+
+    // Attach listener to inspectScheduleBtn (always re-attach if button might be recreated)
+    // First, find the button again in the current view context, as it might have been recreated
+    let currentInspectBtn = view.querySelector('#inspect-schedule-btn');
+    if (currentInspectBtn) { // Check if button exists in the DOM
+        currentInspectBtn.removeEventListener('click', openScheduleInspectionModal); // Remove old listener
+        currentInspectBtn.addEventListener('click', openScheduleInspectionModal); // Add new listener
     }
     
     lucide.createIcons(); // Ensure all icons are rendered
@@ -158,6 +223,154 @@ async function handleViewExistingSchedule() {
     }
     if (typeof lucide !== 'undefined') { // Ensure icons in the message or calendar are rendered
         lucide.createIcons();
+    }
+}
+
+async function openScheduleInspectionModal() {
+    const year = parseInt(yearInput.value);
+    const month = parseInt(monthInput.value);
+
+    if (!year || !month) {
+        alert("점검할 일정을 위해 년도와 월을 먼저 선택하거나 생성해주세요.");
+        return;
+    }
+
+    if (!inspectionModal || !inspectionModalMessageDiv || !inspectionTableBody || !inspectionTableHeaderRow) {
+        console.error("Inspection modal elements not found. Ensure they are correctly ID'd in HTML and obtained in init.");
+        alert("점검 모달의 구성 요소를 찾을 수 없습니다. 페이지를 새로고침하거나 관리자에게 문의하세요.");
+        return;
+    }
+
+    inspectionModalMessageDiv.textContent = '배정 현황 데이터 분석 중...';
+    inspectionModalMessageDiv.className = 'my-2 text-sm text-blue-600'; // Reset to blue
+    inspectionTableBody.innerHTML = ''; // Clear previous content
+    inspectionTableHeaderRow.innerHTML = ''; // Clear previous header
+
+    inspectionModal.classList.add('active'); // Show modal
+
+    try {
+        const result = await inspectionLogic.analyzeScheduleForInspection(year, month);
+
+        if (result.error) {
+            inspectionModalMessageDiv.textContent = result.error;
+            inspectionModalMessageDiv.className = 'my-2 text-sm text-red-600';
+            return; // Stop further processing if there's a fundamental error (e.g., no participants)
+        }
+
+        if (result.message) { // For informational messages like "no schedule found"
+             inspectionModalMessageDiv.textContent = result.message;
+             inspectionModalMessageDiv.className = 'my-2 text-sm text-slate-600'; // Default info color
+        } else {
+             inspectionModalMessageDiv.textContent = ''; // Clear message if analysis was successful without specific messages
+        }
+
+        // Call renderInspectionTable with the analysis data
+        renderInspectionTable(result.analysis, result.uniqueCategoryKeys);
+
+        // Set a final message if analysis was successful and data was rendered
+        if (result.analysis && result.analysis.length > 0 && !result.message && !result.error) {
+            inspectionModalMessageDiv.textContent = `${year}년 ${month}월 배정 현황 (총 배정 많은 순). 붉은색 숫자는 결석자 우선 배정 횟수입니다.`;
+            inspectionModalMessageDiv.className = 'my-2 text-sm text-slate-600'; // Default info color
+        } else if (!result.message && !result.error && (!result.analysis || result.analysis.length === 0)) {
+            // This case handles when analysis runs but returns empty data without specific message (e.g. no participants assigned)
+            // renderInspectionTable would have already shown "표시할 배정 분석 데이터가 없습니다."
+            // So, we might not need to set inspectionModalMessageDiv.textContent here again,
+            // or ensure renderInspectionTable's message is consistent.
+            // For now, let renderInspectionTable handle the "no data to display" message.
+            // If result.message was already set (e.g. "no schedule"), that message will persist.
+        }
+
+    } catch (error) {
+        console.error("Error during schedule inspection analysis:", error);
+        inspectionModalMessageDiv.textContent = `분석 중 오류 발생: ${error.message}`;
+        inspectionModalMessageDiv.className = 'my-2 text-sm text-red-600'; // Show error in red
+    }
+}
+
+function renderInspectionTable(analysisData, uniqueCategoryKeys) {
+    if (!inspectionModal || !inspectionModalMessageDiv || !inspectionTableBody || !inspectionTableHeaderRow) {
+        console.error("Inspection modal table elements not found for rendering.");
+        // Optionally, display an alert or a more prominent error to the user if this happens.
+        if (inspectionModalMessageDiv) { // Check if message div itself exists
+            inspectionModalMessageDiv.textContent = '오류: 점검 모달의 테이블 구성 요소를 찾을 수 없습니다.';
+            inspectionModalMessageDiv.className = 'my-2 text-sm text-red-600';
+        }
+        return;
+    }
+
+    // Clear previous table content
+    inspectionTableHeaderRow.innerHTML = '';
+    inspectionTableBody.innerHTML = '';
+
+    if (!analysisData || analysisData.length === 0) {
+        // If a message wasn't already set by openScheduleInspectionModal (e.g., "No schedule found")
+        // then set a specific message for no analysis data.
+        if (!inspectionModalMessageDiv.textContent || inspectionModalMessageDiv.className.includes('text-blue-600')) {
+             inspectionModalMessageDiv.textContent = '표시할 배정 분석 데이터가 없습니다.';
+             inspectionModalMessageDiv.className = 'my-2 text-sm text-slate-500';
+        }
+        return;
+    }
+
+    // 1. Create Table Header
+    const headerCellClasses = 'px-2 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider';
+    const thName = document.createElement('th');
+    thName.className = headerCellClasses;
+    thName.textContent = '참가자';
+    inspectionTableHeaderRow.appendChild(thName);
+
+    const thTotal = document.createElement('th');
+    thTotal.className = `${headerCellClasses} text-center`;
+    thTotal.textContent = '총 배정';
+    inspectionTableHeaderRow.appendChild(thTotal);
+
+    const sortedCategoryKeys = [...uniqueCategoryKeys].sort();
+
+    sortedCategoryKeys.forEach(key => {
+        const thCat = document.createElement('th');
+        thCat.className = `${headerCellClasses} text-center`;
+        thCat.textContent = CATEGORY_DISPLAY_NAMES[key] || key;
+        inspectionTableHeaderRow.appendChild(thCat);
+    });
+
+    // 2. Create Table Body
+    analysisData.forEach(participantAnalysis => {
+        const tr = inspectionTableBody.insertRow();
+
+        const tdName = tr.insertCell();
+        tdName.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-800 font-medium';
+        tdName.textContent = participantAnalysis.participantName;
+
+        const tdTotal = tr.insertCell();
+        tdTotal.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-600 text-center';
+        tdTotal.textContent = participantAnalysis.totalAssignments;
+
+        sortedCategoryKeys.forEach(key => {
+            const tdCat = tr.insertCell();
+            tdCat.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-600 text-center';
+            const categoryData = participantAnalysis.assignmentsByCategory.get(key);
+
+            if (categoryData && categoryData.count > 0) {
+                if (categoryData.fixedCount > 0) {
+                    tdCat.innerHTML = `${categoryData.count} (<span class="text-red-500 font-bold">${categoryData.fixedCount}</span>)`;
+                } else {
+                    tdCat.textContent = categoryData.count;
+                }
+            } else {
+                tdCat.textContent = '0';
+            }
+        });
+    });
+
+    // Ensure Lucide icons are processed if any were added dynamically within the table (not typical for this table structure though)
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}
+
+function closeScheduleInspectionModal() {
+    if (inspectionModal) {
+        inspectionModal.classList.remove('active');
     }
 }
 
