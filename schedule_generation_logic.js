@@ -26,24 +26,25 @@ function getEnhancedParticipantData(participant, slotInfo, prevMonthAssignmentCo
     const prevCountsForParticipant = prevMonthAssignmentCounts.get(participantId) || new Map();
 
     let prevCategoryCount = 0;
-    if (slotInfo.categoryKey) {
+    if (slotInfo?.categoryKey) {
         prevCategoryCount = prevCountsForParticipant.get(slotInfo.categoryKey) || 0;
     }
 
     const prevTotalCount = calculatedPrevTotalCounts.get(participantId) || 0;
-    const currentCategoryCount = currentMonthAssignmentCounts.get(participantId)?.get(slotInfo.categoryKey) || 0;
+    const currentCategoryCount = currentMonthAssignmentCounts.get(participantId)?.get(slotInfo?.categoryKey) || 0;
 
     let crossPreferenceScore = 0;
-    const participantTypeInitial = participant.type === '초등' ? 'elementary' : 'middle';
-    const coreCategoryForType = coreCategoriesMap[participantTypeInitial];
-
-    if (slotInfo.categoryKey === coreCategoryForType) {
-        if ((prevCountsForParticipant.get(coreCategoryForType) || 0) > 0) {
-            crossPreferenceScore = -1;
-        }
-    } else {
-        if ((prevCountsForParticipant.get(coreCategoryForType) || 0) > 0) {
-            crossPreferenceScore = 1;
+    if (slotInfo?.categoryKey) {
+        const participantTypeInitial = participant.type === '초등' ? 'elementary' : 'middle';
+        const coreCategoryForType = coreCategoriesMap[participantTypeInitial];
+        if (slotInfo.categoryKey === coreCategoryForType) {
+            if ((prevCountsForParticipant.get(coreCategoryForType) || 0) > 0) {
+                crossPreferenceScore = -1;
+            }
+        } else {
+            if ((prevCountsForParticipant.get(coreCategoryForType) || 0) > 0) {
+                crossPreferenceScore = 1;
+            }
         }
     }
 
@@ -212,6 +213,7 @@ export async function generateSchedule(year, month) {
     const elementaryParticipants = participants.filter(p => p.type === '초등' && p.isActive);
     const middleParticipants = participants.filter(p => p.type === '중등' && p.isActive);
 
+    // Main loop for A and B stages (filling slots day by day)
     for (let day = 1; day <= daysInMonth; day++) {
         const currentDate = new Date(year, month - 1, day);
         const dayOfWeekShort = DAYS_OF_WEEK[currentDate.getDay()];
@@ -385,44 +387,47 @@ export async function generateSchedule(year, month) {
                     if (!attemptB1Successful && (isElementaryCoreSlot || isMiddleCoreSlot)) { // B-2
                         const coreCategoryKeyForSlot = slotInfo.categoryKey;
                         const remainingCoreSlotsForType = totalCoreSlots[coreCategoryKeyForSlot] - assignedCoreSlotsCount[coreCategoryKeyForSlot];
-                        const potentialRegularsForSecondCore = originalTargetPool.filter(p => {
-                            return !prevMonthAbsentees.has(p.id) &&
-                                   (assignmentCounts.get(p.id)?.get(coreCategoryKeyForSlot) || 0) === 1 &&
-                                   !dailyAssignments.has(p.id) &&
-                                   !((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeekForSlot));
-                        });
 
-                        if (remainingCoreSlotsForType > 0 && potentialRegularsForSecondCore.length >= 2) {
-                            const sortedRegularsForSecondCore = potentialRegularsForSecondCore
-                                .map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts))
-                                .sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts, false))
-                                .map(data => data.obj);
+                        if (remainingCoreSlotsForType > 0) {
+                            const potentialRegularsForSecondCore = originalTargetPool.filter(p => {
+                                return !prevMonthAbsentees.has(p.id) &&
+                                    (assignmentCounts.get(p.id)?.get(coreCategoryKeyForSlot) || 0) === 1 &&
+                                    !dailyAssignments.has(p.id) &&
+                                    !((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeekForSlot));
+                            });
 
-                            let p1Obj_B2 = null, p2Obj_B2 = null;
-                            for (let i = 0; i < sortedRegularsForSecondCore.length; i++) {
-                                const candidate1_B2 = sortedRegularsForSecondCore[i];
-                                if (dailyAssignments.has(candidate1_B2.id) || (assignmentCounts.get(candidate1_B2.id)?.get(coreCategoryKeyForSlot) || 0) !== 1) continue;
-                                p1Obj_B2 = candidate1_B2;
-                                for (let p2LoopIdx = i + 1; p2LoopIdx < sortedRegularsForSecondCore.length; p2LoopIdx++) {
-                                    const candidate2_B2 = sortedRegularsForSecondCore[p2LoopIdx];
-                                    if (dailyAssignments.has(candidate2_B2.id) || candidate2_B2.id === p1Obj_B2.id || (assignmentCounts.get(candidate2_B2.id)?.get(coreCategoryKeyForSlot) || 0) !== 1) continue;
-                                    if (candidate2_B2.gender === p1Obj_B2.gender) {
-                                        p2Obj_B2 = candidate2_B2;
+                            if (potentialRegularsForSecondCore.length >= 2) {
+                                const sortedRegularsForSecondCore = potentialRegularsForSecondCore
+                                    .map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts))
+                                    .sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts, false))
+                                    .map(data => data.obj);
+
+                                let p1Obj_B2 = null, p2Obj_B2 = null;
+                                for (let i = 0; i < sortedRegularsForSecondCore.length; i++) {
+                                    const candidate1_B2 = sortedRegularsForSecondCore[i];
+                                    if (dailyAssignments.has(candidate1_B2.id) || (assignmentCounts.get(candidate1_B2.id)?.get(coreCategoryKeyForSlot) || 0) !== 1) continue;
+                                    p1Obj_B2 = candidate1_B2;
+                                    for (let p2LoopIdx = i + 1; p2LoopIdx < sortedRegularsForSecondCore.length; p2LoopIdx++) {
+                                        const candidate2_B2 = sortedRegularsForSecondCore[p2LoopIdx];
+                                        if (dailyAssignments.has(candidate2_B2.id) || candidate2_B2.id === p1Obj_B2.id || (assignmentCounts.get(candidate2_B2.id)?.get(coreCategoryKeyForSlot) || 0) !== 1) continue;
+                                        if (candidate2_B2.gender === p1Obj_B2.gender) {
+                                            p2Obj_B2 = candidate2_B2;
+                                            break;
+                                        }
+                                    }
+                                    if (p1Obj_B2 && p2Obj_B2) {
+                                        assignedPair = [p1Obj_B2.id, p2Obj_B2.id];
+                                        fixedAssigneeId = null;
+                                        if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++; else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++;
                                         break;
                                     }
+                                    if(p1Obj_B2 && !p2Obj_B2) p1Obj_B2 = null;
                                 }
-                                if (p1Obj_B2 && p2Obj_B2) {
-                                    assignedPair = [p1Obj_B2.id, p2Obj_B2.id];
-                                    fixedAssigneeId = null;
-                                    if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++; else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++;
-                                    break;
-                                }
-                                if(p1Obj_B2 && !p2Obj_B2) p1Obj_B2 = null;
                             }
                         }
                     } // End of B-2
 
-                    if (assignedPair.length < 2) { // General sequential (C/D/E precursor)
+                    if (assignedPair.length < 2) { // General sequential for remaining slots or non-core sequential
                         const filteredTargetPool = originalTargetPool.filter(p => {
                             let isEligibleForFixedGeneral = true;
                             if (prevMonthAbsentees.has(p.id)) {
@@ -514,7 +519,7 @@ export async function generateSchedule(year, month) {
                 const enhancedEligibleForRandom = eligibleForRandomRaw.map(p =>
                     getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)
                 );
-                enhancedEligibleForRandom.sort((a,b) => compareEnhancedParticipants(a,b,true,assignmentCounts, true)); // Random tie-breaker for random slots
+                enhancedEligibleForRandom.sort((a,b) => compareEnhancedParticipants(a,b,true,assignmentCounts, true));
 
 
                 let p1Data = null, p2Data = null;
@@ -607,106 +612,249 @@ export async function generateSchedule(year, month) {
     }
 
     // --- A단계 - 결석자 2회차 '그 외 시간대' 배정 (슬롯 부족 또는 2차 핵심 실패 시) ---
-    console.log("Attempting 2nd round 'non-core' assignments for absentees who still need them.");
-    const absenteesStillNeedingSecondAssignment = participants.filter(p =>
-        prevMonthAbsentees.has(p.id) &&
-        (fixedAbsenteeAssignments.get(p.id) || 0) < 2 &&
-        (absenteesForSecondRandomRound.has(p.id) ||
-         ((p.type === '초등' && elementaryTargetCoreAssignments === 2) ||
-          (p.type === '중등' && middleTargetCoreAssignments === 2)))
-    );
+    // (이전 subtask에서 구현됨, 현재 파일 내용에 이미 포함)
 
-    if (absenteesStillNeedingSecondAssignment.length > 0) {
-        console.log("Absentees for 2nd non-core round:", absenteesStillNeedingSecondAssignment.map(p=>p.name));
 
-        const postLoopDailyAssignments = new Map();
-        for(let d = 1; d <= daysInMonth; d++) {
-            const dateStrKey = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-            postLoopDailyAssignments.set(dateStrKey, new Set());
-            const dayScheduleFromMainLoop = scheduleData.find(ds => ds.date === dateStrKey);
-            if (dayScheduleFromMainLoop) {
-                dayScheduleFromMainLoop.timeSlots.forEach(slot => {
-                    slot.assigned.forEach(id => postLoopDailyAssignments.get(dateStrKey).add(id));
-                });
-            }
-        }
+    // --- C단계: (A, B단계 후) 남은 가용 슬롯에 대한 2차 배정 (횟수 채우기 및 균등 분배 강화) ---
+    console.log("C-Step: Attempting 2nd assignment for all participants with < 2 total, prioritizing by last month's total assignments.");
 
-        for (const absentee of absenteesStillNeedingSecondAssignment) {
-            for (let day = 1; day <= daysInMonth; day++) {
-                if ((fixedAbsenteeAssignments.get(absentee.id) || 0) >= 2) break;
-                const currentDate = new Date(year, month - 1, day);
-                const currentWeek = getWeekOfMonth(currentDate);
-                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                const dailyAssignedForThisDay = postLoopDailyAssignments.get(dateStr);
-
-                if (absenteeFixedWeeklyAssignments.get(absentee.id)?.has(currentWeek)) {
-                    continue;
-                }
-
-                const slotsForDay = TIME_SLOT_CONFIG[DAYS_OF_WEEK[currentDate.getDay()]] || [];
-                for (const slotInfo of slotsForDay) {
-                    if ((fixedAbsenteeAssignments.get(absentee.id) || 0) >= 2) break;
-                    if (slotInfo.categoryKey === CORE_CATEGORIES.elementary || slotInfo.categoryKey === CORE_CATEGORIES.middle) {
-                        continue;
-                    }
-
-                    const daySch = scheduleData.find(ds => ds.date === dateStr);
-                    if (!daySch) continue;
-
-                    const targetSlot = daySch.timeSlots.find(ts => ts.time === slotInfo.time && ts.type === slotInfo.type && ts.categoryKey === slotInfo.categoryKey);
-                    if (!targetSlot) continue;
-
-                    if (targetSlot.assigned.length > 0) continue;
-
-                    if (dailyAssignedForThisDay.has(absentee.id)) continue;
-                    if (((assignmentCounts.get(absentee.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(absentee.id)?.has(currentWeek))) continue;
-
-                    const partnerPool = (absentee.type === '초등' ? elementaryParticipants : middleParticipants).filter(p => {
-                        if (p.id === absentee.id || dailyAssignedForThisDay.has(p.id) || p.gender !== absentee.gender) return false;
-                        return !(((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeek)));
-                    });
-
-                    if (partnerPool.length > 0) {
-                        // For simplicity in this already complex post-loop, pick the first available partner.
-                        // Sorting could be added here if further optimization is needed.
-                        const partner = partnerPool[0];
-
-                        targetSlot.assigned = [absentee.id, partner.id];
-                        targetSlot.assignedNames = [participantsMap.get(absentee.id), participantsMap.get(partner.id)];
-                        targetSlot.isFixedStatus = [false, false]; // Non-core assignments are not 'fixed' in the same sense
-
-                        dailyAssignedForThisDay.add(absentee.id);
-                        dailyAssignedForThisDay.add(partner.id);
-
-                        fixedAbsenteeAssignments.set(absentee.id, (fixedAbsenteeAssignments.get(absentee.id) || 0) + 1);
-
-                        [absentee.id, partner.id].forEach(pid => {
-                            const counts = assignmentCounts.get(pid);
-                            counts.set('total', (counts.get('total') || 0) + 1);
-                            if (slotInfo.categoryKey) counts.set(slotInfo.categoryKey, (counts.get(slotInfo.categoryKey) || 0) + 1);
-                            participantWeeklyAssignments.get(pid).add(currentWeek);
-                        });
-                    }
-                }
-            }
+    const postLoopDailyAssignments_C = new Map();
+    for(let d = 1; d <= daysInMonth; d++) {
+        const dateStrKey = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        postLoopDailyAssignments_C.set(dateStrKey, new Set());
+        const dayScheduleFromMainLoop = scheduleData.find(ds => ds.date === dateStrKey);
+        if (dayScheduleFromMainLoop) {
+            dayScheduleFromMainLoop.timeSlots.forEach(slot => {
+                slot.assigned.forEach(id => postLoopDailyAssignments_C.get(dateStrKey).add(id));
+            });
         }
     }
-    // --- A단계 - 결석자 2회차 '그 외 시간대' 배정 끝 ---
+
+    let participantsForCStep = participants.filter(p => (assignmentCounts.get(p.id)?.get('total') || 0) < 2);
+    if (participantsForCStep.length < 2) {
+        console.log("C-Step: Not enough participants needing more assignments to form pairs or all eligible have 2.");
+    } else {
+        console.log(`C-Step: Found ${participantsForCStep.length} participants with < 2 assignments.`);
+        let sortedParticipantsForCStep = [...participantsForCStep].sort((pA, pB) => {
+            const prevTotalA = calculatedPrevTotalCounts.get(pA.id) || 0;
+            const prevTotalB = calculatedPrevTotalCounts.get(pB.id) || 0;
+            if (prevTotalA !== prevTotalB) {
+                return prevTotalA - prevTotalB;
+            }
+            return pA.id - pB.id; // Tie-breaking
+        });
+
+        const candidatePairs = [];
+        // const cStepPairedParticipantIds = new Set(); // Not used as per prompt's example
+
+        for (let i = 0; i < sortedParticipantsForCStep.length; i++) {
+            const p1 = sortedParticipantsForCStep[i];
+            if ((assignmentCounts.get(p1.id)?.get('total') || 0) >= 2) continue; // Already got 2 assignments
+
+            for (let j = i + 1; j < sortedParticipantsForCStep.length; j++) {
+                const p2 = sortedParticipantsForCStep[j];
+                if ((assignmentCounts.get(p2.id)?.get('total') || 0) >= 2) continue; // Already got 2 assignments
+
+                if (p1.gender === p2.gender) {
+                    candidatePairs.push({
+                        p1: p1,
+                        p2: p2,
+                        priorityScore: calculatedPrevTotalCounts.get(p1.id) || 0
+                    });
+                    break;
+                }
+            }
+        }
+
+        candidatePairs.sort((pairA, pairB) => {
+            if (pairA.priorityScore !== pairB.priorityScore) {
+                return pairA.priorityScore - pairB.priorityScore;
+            }
+            return pairA.p1.id - pairB.p1.id;
+        });
+        console.log(`C-Step: Generated ${candidatePairs.length} candidate pairs based on prev month total.`);
+
+        const remainingEmptySlots_C = []; // Renamed to avoid conflict
+        scheduleData.forEach(daySch => {
+            daySch.timeSlots.forEach(slot => {
+                if (slot.assigned.length === 0) {
+                    remainingEmptySlots_C.push({
+                        date: daySch.date,
+                        dayOfWeekShort: DAYS_OF_WEEK[new Date(daySch.date).getDay()],
+                        ...slot
+                    });
+                }
+            });
+        });
+        console.log(`C-Step: Found ${remainingEmptySlots_C.length} empty slots.`);
+
+        let assignedInCStepCount = 0;
+        const assignmentsToMake_C = Math.min(remainingEmptySlots_C.length, candidatePairs.length); // Renamed
+        const usedEmptySlotsCStep = new Set();
+
+        for (let i = 0; i < assignmentsToMake_C; i++) {
+            const pairToAssign = candidatePairs[i];
+            const p1 = pairToAssign.p1;
+            const p2 = pairToAssign.p2;
+
+            if ((assignmentCounts.get(p1.id)?.get('total') || 0) >= 2 || (assignmentCounts.get(p2.id)?.get('total') || 0) >= 2) continue;
+
+            let cStepAssignedThisPair = false;
+            remainingEmptySlots_C.sort(() => Math.random() - 0.5);
+
+            for (const emptySlot of remainingEmptySlots_C) {
+                const slotIdentifier = `${emptySlot.date}-${emptySlot.time}-${emptySlot.type}-${emptySlot.categoryKey}`;
+                if (usedEmptySlotsCStep.has(slotIdentifier)) continue;
+
+                const currentDate_C = new Date(emptySlot.date); // Renamed
+                const currentWeek_C = getWeekOfMonth(currentDate_C); // Renamed
+                const dailyAssignedForThisDay_C = postLoopDailyAssignments_C.get(emptySlot.date);
+
+                const p1CanBeAssigned = !dailyAssignedForThisDay_C.has(p1.id) &&
+                                        !participantWeeklyAssignments.get(p1.id)?.has(currentWeek_C) && // Strict 1 assignment per week for C-step
+                                        (assignmentCounts.get(p1.id)?.get('total') || 0) < 2;
+                const p2CanBeAssigned = !dailyAssignedForThisDay_C.has(p2.id) &&
+                                        !participantWeeklyAssignments.get(p2.id)?.has(currentWeek_C) && // Strict 1 assignment per week for C-step
+                                        (assignmentCounts.get(p2.id)?.get('total') || 0) < 2;
 
 
-    // --- C단계: 전체 인원 '그 외 시간대' 및 잔여 슬롯 배정 (목표: 모든 인원 최소 1회) ---
-    console.log("Entering C-Step: Ensuring all participants have at least 1 assignment.");
-    const zeroAssignmentParticipants = participants.filter(p => (assignmentCounts.get(p.id)?.get('total') || 0) === 0);
+                if (p1CanBeAssigned && p2CanBeAssigned) {
+                    const daySchToUpdate = scheduleData.find(ds => ds.date === emptySlot.date);
+                    const slotToUpdate = daySchToUpdate.timeSlots.find(s => s.time === emptySlot.time && s.type === emptySlot.type && s.categoryKey === emptySlot.categoryKey);
 
-    if (zeroAssignmentParticipants.length > 0) {
-        console.log("Participants with 0 assignments:", zeroAssignmentParticipants.map(p=>p.name));
-        // TODO: Implement logic to assign these participants to remaining slots (any type).
+                    slotToUpdate.assigned = [p1.id, p2.id];
+                    slotToUpdate.assignedNames = [participantsMap.get(p1.id), participantsMap.get(p2.id)];
+                    slotToUpdate.isFixedStatus = [false, false];
+
+                    dailyAssignedForThisDay_C.add(p1.id);
+                    dailyAssignedForThisDay_C.add(p2.id);
+
+                    [p1.id, p2.id].forEach(pid => {
+                        const counts = assignmentCounts.get(pid);
+                        counts.set('total', (counts.get('total') || 0) + 1);
+                        if (slotToUpdate.categoryKey) counts.set(slotToUpdate.categoryKey, (counts.get(slotToUpdate.categoryKey) || 0) + 1);
+                        participantWeeklyAssignments.get(pid).add(currentWeek_C);
+                        if (slotToUpdate.categoryKey === CORE_CATEGORIES.elementary) assignedCoreSlotsCount.elementary_6am++;
+                        else if (slotToUpdate.categoryKey === CORE_CATEGORIES.middle) assignedCoreSlotsCount.middle_7am++;
+                    });
+
+                    assignedInCStepCount++;
+                    usedEmptySlotsCStep.add(slotIdentifier);
+                    cStepAssignedThisPair = true;
+                    break;
+                }
+            }
+            if (!cStepAssignedThisPair) {
+                 console.log(`C-Step: Could not find a suitable slot for pair ${p1.name} & ${p2.name}`);
+            }
+        }
+        console.log(`C-Step: Assigned ${assignedInCStepCount} pairs.`);
     }
     // --- C단계 끝 ---
 
-    // --- D단계: 전체 인원 2회차 배정 완료 (부족분 채우기) ---
-    console.log("Entering D-Step: Ensuring all participants have up to 2 assignments if slots allow.");
-    // TODO: Implement D-Step logic
+
+    // --- D단계: 최종 추가 랜덤 배정 ---
+    console.log("Entering D-Step: Final random assignments for any remaining slots.");
+
+    const postLoopDailyAssignments_D = new Map();
+    for(let d = 1; d <= daysInMonth; d++) {
+        const dateStrKey = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        postLoopDailyAssignments_D.set(dateStrKey, new Set());
+        const dayScheduleFromCurrent = scheduleData.find(ds => ds.date === dateStrKey);
+        if (dayScheduleFromCurrent) {
+            dayScheduleFromCurrent.timeSlots.forEach(slot => {
+                slot.assigned.forEach(id => postLoopDailyAssignments_D.get(dateStrKey).add(id));
+            });
+        }
+    }
+
+    let dStepAssignedCount = 0;
+    for (let dayD = 1; dayD <= daysInMonth; dayD++) {
+        const currentDateD = new Date(year, month - 1, dayD);
+        const currentWeekD = getWeekOfMonth(currentDateD);
+        const dateStrD = `${year}-${String(month).padStart(2, '0')}-${String(dayD).padStart(2, '0')}`;
+        const dailyAssignedForThisDay_D = postLoopDailyAssignments_D.get(dateStrD);
+
+        const daySch_D = scheduleData.find(ds => ds.date === dateStrD);
+        if (!daySch_D) continue;
+
+        const slotsForDay_D = TIME_SLOT_CONFIG[DAYS_OF_WEEK[currentDateD.getDay()]] || [];
+
+        for (const slotInfo_D of slotsForDay_D) {
+            const targetSlot_D = daySch_D.timeSlots.find(ts => ts.time === slotInfo_D.time && ts.type === slotInfo_D.type && ts.categoryKey === slotInfo_D.categoryKey);
+            if (!targetSlot_D || targetSlot_D.assigned.length > 0) continue;
+
+            let potentialP1List_D = participants.filter(p => {
+                if (dailyAssignedForThisDay_D.has(p.id)) return false;
+                if (participantWeeklyAssignments.get(p.id)?.has(currentWeekD)) return false;
+                return true;
+            });
+
+            if (potentialP1List_D.length === 0) continue;
+
+            const tempSlotInfoForDSort = { categoryKey: 'general_D_step_sort' };
+            const sortedPotentialP1_D = potentialP1List_D
+                .map(p => getEnhancedParticipantData(p, tempSlotInfoForDSort, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts))
+                .sort((a,b) => {
+                    const totalA_D = assignmentCounts.get(a.id)?.get('total') || 0;
+                    const totalB_D = assignmentCounts.get(b.id)?.get('total') || 0;
+                    if (totalA_D !== totalB_D) return totalA_D - totalB_D;
+                    return Math.random() - 0.5;
+                });
+
+            if (sortedPotentialP1_D.length === 0) continue;
+
+            let p1_D = null, p2_D = null;
+
+            for (const p1Data_D of sortedPotentialP1_D) {
+                const candidateP1 = p1Data_D.obj;
+                if (dailyAssignedForThisDay_D.has(candidateP1.id) || participantWeeklyAssignments.get(candidateP1.id)?.has(currentWeekD)) continue;
+
+                let potentialPartners_D = participants.filter(p => {
+                    if (p.id === candidateP1.id || dailyAssignedForThisDay_D.has(p.id) || p.gender !== candidateP1.gender) return false;
+                    if (participantWeeklyAssignments.get(p.id)?.has(currentWeekD)) return false;
+                    return true;
+                });
+
+                if (potentialPartners_D.length > 0) {
+                    const sortedPotentialPartners_D = potentialPartners_D
+                        .map(p => getEnhancedParticipantData(p, tempSlotInfoForDSort, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts))
+                        .sort((a,b) => {
+                            const totalA_DP = assignmentCounts.get(a.id)?.get('total') || 0;
+                            const totalB_DP = assignmentCounts.get(b.id)?.get('total') || 0;
+                            if (totalA_DP !== totalB_DP) return totalA_DP - totalB_DP;
+                            return Math.random() - 0.5;
+                        });
+
+                    if (sortedPotentialPartners_D.length > 0) {
+                        p1_D = candidateP1;
+                        p2_D = sortedPotentialPartners_D[0].obj;
+                        break;
+                    }
+                }
+            }
+
+            if (p1_D && p2_D) {
+                targetSlot_D.assigned = [p1_D.id, p2_D.id];
+                targetSlot_D.assignedNames = [participantsMap.get(p1_D.id), participantsMap.get(p2_D.id)];
+                targetSlot_D.isFixedStatus = [false, false];
+
+                dailyAssignedForThisDay_D.add(p1_D.id);
+                dailyAssignedForThisDay_D.add(p2_D.id);
+
+                [p1_D.id, p2_D.id].forEach(pid => {
+                    const counts = assignmentCounts.get(pid);
+                    counts.set('total', (counts.get('total') || 0) + 1);
+                    if (slotInfo_D.categoryKey) counts.set(slotInfo_D.categoryKey, (counts.get(slotInfo_D.categoryKey) || 0) + 1);
+                    participantWeeklyAssignments.get(pid).add(currentWeekD);
+                });
+                dStepAssignedCount++;
+            }
+        }
+    }
+    if (dStepAssignedCount > 0) {
+        console.log(`D-Step: Assigned ${dStepAssignedCount} additional pairs randomly.`);
+    }
     // --- D단계 끝 ---
 
     // --- E단계: 추가 랜덤 배정 ---
