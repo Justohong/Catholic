@@ -535,7 +535,10 @@ export async function generateSchedule(year, month) {
                                     }
                                 }
                             });
-                            if ((isElementaryCoreSlot || isMiddleCoreSlot) && !attemptB1Successful ) {
+                            // If it's a core slot and still not filled by specific A/B1/B2 logic,
+                            // this general sequential assignment will count towards core slots.
+                            // The !attemptB1Successful flag was removed as it's no longer relevant.
+                            if (isElementaryCoreSlot || isMiddleCoreSlot) {
                                if (slotInfo.categoryKey === CORE_CATEGORIES.elementary) assignedCoreSlotsCount.elementary_6am++;
                                else if (slotInfo.categoryKey === CORE_CATEGORIES.middle) assignedCoreSlotsCount.middle_7am++;
                             }
