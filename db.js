@@ -1,10 +1,10 @@
 const DB_NAME = 'SchedulePWA_DB';
-const DB_VERSION = 4; // Updated DB version
+const DB_VERSION = 4; // Ensure DB version is 4
 const PARTICIPANTS_STORE_NAME = 'participants';
 const SCHEDULES_STORE_NAME = 'schedules';
 const ATTENDANCE_LOG_STORE_NAME = 'attendanceLog';
 const SCHEDULE_STATE_STORE_NAME = 'scheduleState';
-const MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME = 'monthlyAssignmentCounts'; // Added constant
+const MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME = 'monthlyAssignmentCounts';
 
 let db;
 
@@ -14,40 +14,35 @@ export function openDB() {
             resolve(db);
             return;
         }
-
         const request = indexedDB.open(DB_NAME, DB_VERSION);
-
         request.onerror = (event) => {
             console.error('Database error:', event.target.error);
             reject('Database error: ' + event.target.error);
         };
-
         request.onsuccess = (event) => {
             db = event.target.result;
             resolve(db);
         };
-
         request.onupgradeneeded = (event) => {
             const tempDb = event.target.result;
             if (!tempDb.objectStoreNames.contains(PARTICIPANTS_STORE_NAME)) {
-                const objectStore = tempDb.createObjectStore(PARTICIPANTS_STORE_NAME, { keyPath: 'id', autoIncrement: true });
-                objectStore.createIndex('name', 'name', { unique: false });
-                objectStore.createIndex('type', 'type', { unique: false }); 
+                const store = tempDb.createObjectStore(PARTICIPANTS_STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                store.createIndex('name', 'name', { unique: false });
+                store.createIndex('type', 'type', { unique: false });
             }
             if (!tempDb.objectStoreNames.contains(SCHEDULES_STORE_NAME)) {
-                const scheduleStore = tempDb.createObjectStore(SCHEDULES_STORE_NAME, { keyPath: ['year', 'month'] });
-                scheduleStore.createIndex('yearMonth', ['year', 'month'], { unique: true });
+                const store = tempDb.createObjectStore(SCHEDULES_STORE_NAME, { keyPath: ['year', 'month'] });
+                store.createIndex('yearMonth', ['year', 'month'], { unique: true });
             }
             if (!tempDb.objectStoreNames.contains(ATTENDANCE_LOG_STORE_NAME)) {
-                const attendanceStore = tempDb.createObjectStore(ATTENDANCE_LOG_STORE_NAME, { keyPath: 'id', autoIncrement: true });
-                attendanceStore.createIndex('participantMonth', ['participantId', 'year', 'month'], { unique: false });
-                attendanceStore.createIndex('date', 'date', { unique: false });
-                attendanceStore.createIndex('yearMonthStatus', ['year', 'month', 'status'], { unique: false });
+                const store = tempDb.createObjectStore(ATTENDANCE_LOG_STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                store.createIndex('participantMonth', ['participantId', 'year', 'month'], { unique: false });
+                store.createIndex('date', 'date', { unique: false });
+                store.createIndex('yearMonthStatus', ['year', 'month', 'status'], { unique: false });
             }
             if (!tempDb.objectStoreNames.contains(SCHEDULE_STATE_STORE_NAME)) {
                 tempDb.createObjectStore(SCHEDULE_STATE_STORE_NAME, { keyPath: 'category' });
             }
-            // Schema for MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME
             if (!tempDb.objectStoreNames.contains(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME)) {
                 const store = tempDb.createObjectStore(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME, { keyPath: ['year', 'month', 'participantId', 'categoryKey'] });
                 store.createIndex('yearMonthIndex', ['year', 'month'], { unique: false });
@@ -117,17 +112,20 @@ export async function deleteMultipleParticipants(ids) {
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([PARTICIPANTS_STORE_NAME], 'readwrite');
         const store = transaction.objectStore(PARTICIPANTS_STORE_NAME);
-        let deletePromises = ids.map(id => {
-            return new Promise((res, rej) => {
-                const request = store.delete(id);
-                request.onsuccess = () => res();
-                request.onerror = (event) => rej(event.target.error);
-            });
+        let deleteCount = 0;
+        if (ids.length === 0) {
+            resolve();
+            return;
+        }
+        ids.forEach(id => {
+            const request = store.delete(id);
+            request.onsuccess = () => {
+                deleteCount++;
+                if (deleteCount === ids.length) resolve();
+            };
+            request.onerror = (event) => reject(event.target.error);
         });
-        Promise.all(deletePromises)
-            .then(() => resolve())
-            .catch(error => reject(error));
-        transaction.oncomplete = () => resolve(); // Resolve after all delete operations in transaction are done
+        transaction.oncomplete = () => resolve();
         transaction.onerror = (event) => reject(event.target.error);
     });
 }
@@ -171,6 +169,23 @@ export async function getAllSchedules() {
     });
 }
 
+export async function clearAllSchedules() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([SCHEDULES_STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(SCHEDULES_STORE_NAME);
+        const request = store.clear();
+        request.onsuccess = () => {
+            console.log('All schedules cleared.');
+            resolve();
+        };
+        request.onerror = (event) => {
+            console.error('Error clearing schedules:', event.target.error);
+            reject(event.target.error);
+        };
+    });
+}
+
 export async function getSchedule(year, month) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -204,6 +219,23 @@ export async function getAllAttendanceLogs() {
     });
 }
 
+export async function clearAllAttendanceLogs() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([ATTENDANCE_LOG_STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(ATTENDANCE_LOG_STORE_NAME);
+        const request = store.clear();
+        request.onsuccess = () => {
+            console.log('All attendance logs cleared.');
+            resolve();
+        };
+        request.onerror = (event) => {
+            console.error('Error clearing attendance logs:', event.target.error);
+            reject(event.target.error);
+        };
+    });
+}
+
 export async function getAbsenteesForMonth(year, month) {
     const db = await openDB();
     return new Promise((resolve, reject) => {
@@ -211,10 +243,9 @@ export async function getAbsenteesForMonth(year, month) {
         const store = transaction.objectStore(ATTENDANCE_LOG_STORE_NAME);
         const index = store.index('yearMonthStatus');
         const request = index.getAll(IDBKeyRange.only([year, month, 'absent']));
-        
         request.onsuccess = () => {
             const absenteesMap = new Map(); 
-            request.result.forEach(record => {
+            (request.result || []).forEach(record => {
                 absenteesMap.set(record.participantId, (absenteesMap.get(record.participantId) || 0) + 1);
             });
             resolve(Array.from(absenteesMap.keys())); 
@@ -230,9 +261,8 @@ export async function getAttendanceLogForParticipantDate(participantId, dateStri
         const store = transaction.objectStore(ATTENDANCE_LOG_STORE_NAME);
         const index = store.index('date'); 
         const request = index.getAll(IDBKeyRange.only(dateString));
-        
         request.onsuccess = () => {
-            const records = request.result;
+            const records = request.result || [];
             const specificRecord = records.find(r => r.participantId === participantId && r.status === 'absent');
             resolve(specificRecord || null);
         };
@@ -256,7 +286,6 @@ export async function clearAbsencesForPeriod(year, month, day = null) {
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([ATTENDANCE_LOG_STORE_NAME], 'readwrite');
         const store = transaction.objectStore(ATTENDANCE_LOG_STORE_NAME);
-
         let query;
         if (day) {
             const dateIndex = store.index('date');
@@ -266,7 +295,6 @@ export async function clearAbsencesForPeriod(year, month, day = null) {
             const yearMonthStatusIndex = store.index('yearMonthStatus');
             query = yearMonthStatusIndex.openCursor(IDBKeyRange.only([year, month, 'absent']));
         }
-
         let deleteCount = 0;
         query.onsuccess = (event) => {
             const cursor = event.target.result;
@@ -332,7 +360,6 @@ export async function resetAllScheduleState() {
         const transaction = db.transaction([SCHEDULE_STATE_STORE_NAME], 'readwrite');
         const store = transaction.objectStore(SCHEDULE_STATE_STORE_NAME);
         const request = store.clear();
-
         request.onsuccess = () => {
             console.log('All schedule states have been reset.');
             resolve();
@@ -355,68 +382,93 @@ export async function getAllMonthlyAssignmentCounts() {
     });
 }
 
+export async function clearAllMonthlyAssignmentCounts() {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME);
+        const request = store.clear();
+        request.onsuccess = () => {
+            console.log('All monthly assignment counts cleared.');
+            resolve();
+        };
+        request.onerror = (event) => {
+            console.error('Error clearing monthly assignment counts:', event.target.error);
+            reject(event.target.error);
+        };
+    });
+}
+
 export async function saveMonthlyAssignmentCounts(year, month, assignmentData) {
     const db = await openDB();
-    return new Promise(async (resolve, reject) => {
+    return new Promise((resolve, reject) => { // Removed async from outer Promise constructor
         const transaction = db.transaction([MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME], 'readwrite');
         const store = transaction.objectStore(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME);
 
-        const deleteCursorRequest = store.index('yearMonthIndex').openCursor(IDBKeyRange.only([year, month]));
-        let deleteCount = 0;
+        const keysToDelete = [];
+        const cursorRequest = store.index("yearMonthIndex").openKeyCursor(IDBKeyRange.only([year, month]));
 
-        deleteCursorRequest.onsuccess = (event) => {
+        cursorRequest.onsuccess = (event) => {
             const cursor = event.target.result;
             if (cursor) {
-                store.delete(cursor.primaryKey);
-                deleteCount++;
+                // For a store with a composite keyPath like ['year', 'month', 'participantId', 'categoryKey'],
+                // cursor.primaryKey will be that composite array.
+                keysToDelete.push(cursor.primaryKey);
                 cursor.continue();
             } else {
-                // All old records for the month are deleted
-                console.log(`Deleted ${deleteCount} old assignment count entries for ${year}-${month}.`);
-                putNewData();
+                // All keys for the month collected, proceed to delete then put.
+                deleteOldAndPutNew();
             }
         };
-        deleteCursorRequest.onerror = (event) => {
-            console.error('Error deleting old assignment counts:', event.target.error);
+        cursorRequest.onerror = (event) => {
+            console.error("Error collecting keys for old assignment counts:", event.target.error);
             reject(event.target.error);
         };
 
+        function deleteOldAndPutNew() {
+            let deleteOperations = keysToDelete.map(primaryKey => {
+                return new Promise((res, rej) => {
+                    const deleteRequest = store.delete(primaryKey);
+                    deleteRequest.onsuccess = () => res();
+                    deleteRequest.onerror = (e) => rej(e.target.error);
+                });
+            });
+
+            Promise.all(deleteOperations)
+                .then(() => {
+                    console.log(`Deleted ${keysToDelete.length} old assignment count entries for ${year}-${month}.`);
+                    putNewData();
+                })
+                .catch(error => {
+                    console.error("Error in deleting old assignment counts during bulk save:", error);
+                    reject(error);
+                });
+        }
+
         function putNewData() {
-            if (assignmentData.length === 0) {
+            if (!assignmentData || assignmentData.length === 0) {
                 resolve();
                 return;
             }
-            let putCounter = 0;
-            assignmentData.forEach(item => {
-                const fullRecord = { year, month, participantId: item.participantId, categoryKey: item.categoryKey, count: item.count };
-                const request = store.put(fullRecord);
-                request.onsuccess = () => {
-                    putCounter++;
-                    if (putCounter === assignmentData.length) {
-                        resolve();
-                    }
-                };
-                request.onerror = (event) => {
-                    // Don't reject outer promise on single put error, but log it
-                    console.error('Error putting assignment count item:', event.target.error, fullRecord);
-                    putCounter++; // Still count it to allow Promise.all like behavior
-                     if (putCounter === assignmentData.length) {
-                        // If all attempts are done, resolve, but errors have been logged.
-                        // Or, one could choose to reject here if any put fails.
-                        resolve();
-                    }
-                };
+            const putOperations = assignmentData.map(item => {
+                return new Promise((res, rej) => {
+                    const fullRecord = { year, month, participantId: item.participantId, categoryKey: item.categoryKey, count: item.count };
+                    const request = store.put(fullRecord);
+                    request.onsuccess = () => res();
+                    request.onerror = (e) => rej(e.target.error);
+                });
             });
+            Promise.all(putOperations)
+                .then(() => resolve())
+                .catch(error => {
+                    console.error('Error saving new assignment counts:', error);
+                    reject(error);
+                });
         }
-        // Transaction handlers
-        transaction.oncomplete = () => {
-            console.log(`Transaction saveMonthlyAssignmentCounts for ${year}-${month} completed.`);
-            // Resolve is handled by individual put operations success or final cursor step
-        };
-        transaction.onerror = (event) => {
-            console.error('Transaction error in saveMonthlyAssignmentCounts:', event.target.error);
-            reject(event.target.error);
-        };
+        // If keysToDelete was initially empty (no old data for the month)
+        if (keysToDelete.length === 0 && !cursorRequest.transaction) { // A bit of a heuristic, ideally check if cursor logic completed
+             // This check might be problematic. The cursor onsuccess will call putNewData if keysToDelete is empty.
+        }
     });
 }
 
@@ -447,6 +499,56 @@ export async function getPreviousMonthAssignmentCounts(currentYear, currentMonth
         request.onerror = (event) => {
             console.error('Error fetching previous month assignment counts:', event.target.error);
             reject(event.target.error);
+        };
+    });
+}
+
+export async function bulkPutStoreData(storeName, itemsArray) {
+    if (!itemsArray || itemsArray.length === 0) {
+        return Promise.resolve();
+    }
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        const transaction = db.transaction([storeName], 'readwrite');
+        const store = transaction.objectStore(storeName);
+        let itemsPut = 0;
+        let errored = false;
+
+        itemsArray.forEach(item => {
+            if (errored) return; // Stop processing if an error already occurred
+            const request = store.put(item);
+            request.onsuccess = () => {
+                itemsPut++;
+                if (itemsPut === itemsArray.length && !errored) {
+                    console.log(`Successfully put ${itemsPut} items into ${storeName}.`);
+                    resolve();
+                }
+            };
+            request.onerror = (event) => {
+                if (errored) return;
+                errored = true;
+                console.error(`Error putting item into ${storeName}:`, event.target.error, item);
+                transaction.abort(); // Abort the transaction on first error
+                reject(event.target.error);
+            };
+        });
+
+        transaction.oncomplete = () => {
+            // This will only be called if all individual put operations' onsuccess were called
+            // AND no explicit transaction.abort() or unhandled errors occurred.
+            // If resolve() was already called by the counter, this is fine.
+            if (!errored) { // Ensure resolve wasn't called due to an error then success after abort
+                 console.log(`Transaction for bulk put to ${storeName} completed.`);
+                 // If itemsPut counter didn't resolve (e.g. itemsArray was empty but caught by initial check)
+                 // we might need a resolve() here, but the initial check handles empty itemsArray.
+                 // If all items succeeded, itemsPut counter should have resolved it.
+            }
+        };
+        transaction.onerror = (event) => {
+            if (!errored) { // Only reject if not already rejected by an item's onerror
+                console.error(`Transaction error during bulk put to ${storeName}:`, event.target.error);
+                reject(event.target.error);
+            }
         };
     });
 }

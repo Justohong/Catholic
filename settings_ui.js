@@ -15,14 +15,13 @@ async function handleExportAllData_UI_Wrapper() {
         const result = await settingsLogic.handleExportAllData();
         if (result.success) {
             if(messageArea) messageArea.textContent = '데이터 내보내기 완료! 다운로드가 시작됩니다.';
-            // alert('모든 데이터가 성공적으로 내보내졌습니다!'); // Logic layer alert removed
         } else {
             throw new Error(result.error || '알 수 없는 내보내기 오류');
         }
     } catch (error) {
         console.error("UI: Data export failed:", error);
         if(messageArea) messageArea.textContent = `오류: 데이터 내보내기 실패 (${error.message})`;
-        alert(`데이터 내보내기 실패: ${error.message}`); // Keep alert for critical errors in UI
+        alert(`데이터 내보내기 실패: ${error.message}`);
     } finally {
         if(exportButton) exportButton.disabled = false;
     }
@@ -36,25 +35,19 @@ export function initSettingsView(containerId) {
     }
 
     let h2Title = viewElement.querySelector('h2.text-xl.font-semibold.text-sky-700');
-    // If the h2 from index.html is not found (e.g. if viewElement.innerHTML was cleared previously)
-    // or if we want to ensure the title is always exactly "설정" for this view:
     if (!h2Title || h2Title.textContent !== '설정') {
-        // Remove existing h2 if it's not the one we want or if viewElement was cleared
         if (h2Title) h2Title.remove();
-
         h2Title = document.createElement('h2');
         h2Title.className = 'text-xl font-semibold mb-4 text-sky-700';
         h2Title.textContent = '설정';
-        // Prepend to ensure it's at the top if viewElement was empty
         viewElement.prepend(h2Title);
     }
-
 
     let dataManagementSection = viewElement.querySelector('#data-management-section');
     if (!dataManagementSection) {
         dataManagementSection = document.createElement('div');
         dataManagementSection.id = 'data-management-section';
-        dataManagementSection.className = 'mt-6'; // h2 아래에 적절한 마진
+        dataManagementSection.className = 'mt-6';
 
         dataManagementSection.innerHTML = `
             <h3 class="text-lg font-medium mb-3 text-sky-600">데이터 관리</h3>
@@ -79,7 +72,6 @@ export function initSettingsView(containerId) {
             </div>
         `;
 
-        // h2 다음에 dataManagementSection을 추가
         if (h2Title.nextSibling) {
             viewElement.insertBefore(dataManagementSection, h2Title.nextSibling);
         } else {
@@ -101,8 +93,8 @@ export function initSettingsView(containerId) {
         importFileInput.removeEventListener('change', handleImportFileSelect);
         importFileInput.addEventListener('change', handleImportFileSelect);
 
-        importButton.removeEventListener('click', handleImportAllData_UI_Temp);
-        importButton.addEventListener('click', handleImportAllData_UI_Temp);
+        importButton.removeEventListener('click', handleImportAllData_UI_Wrapper); // Changed from _UI_Temp
+        importButton.addEventListener('click', handleImportAllData_UI_Wrapper); // Changed from _UI_Temp
     }
 
     if (typeof lucide !== 'undefined') {
@@ -126,22 +118,52 @@ function handleImportFileSelect(event) {
     }
 }
 
-async function handleImportAllData_UI_Temp() {
+async function handleImportAllData_UI_Wrapper() { // Renamed from _UI_Temp
     const importFileInput = document.getElementById('import-file-input');
+    const importButton = document.getElementById('import-all-data-btn');
+    const messageArea = document.getElementById('settings-message-area');
+    const selectedFileInfoDiv = document.getElementById('selected-import-file-info');
+
     if (importFileInput.files.length === 0) {
-        alert('복원할 파일을 선택해주세요.');
+        if(messageArea) messageArea.textContent = '복원할 파일을 먼저 선택해주세요.';
+        if(messageArea) messageArea.className = 'mt-2 text-sm text-red-600';
         return;
     }
     const file = importFileInput.files[0];
-    console.log(`Import All Data button clicked for file: ${file.name}. Actual logic to be implemented.`);
-    alert(`'${file.name}' 파일 가져오기 기능은 곧 구현될 예정입니다.`);
 
-    // const messageArea = document.getElementById('settings-message-area');
-    // if(messageArea) messageArea.textContent = `파일 '${file.name}' 가져오기 처리 중...`;
-    // try {
-    //    await settingsLogic.handleImportAllData(file); // This will be the actual call
-    //    if(messageArea) messageArea.textContent = '데이터 가져오기 완료! 앱을 새로고침하세요.';
-    // } catch (e) {
-    //    if(messageArea) messageArea.textContent = `오류: 데이터 가져오기 실패 (${e.message})`;
-    // }
+    if(importButton) importButton.disabled = true;
+    if(messageArea) {
+        messageArea.textContent = `'${file.name}' 파일 데이터 복원 중...`;
+        messageArea.className = 'mt-2 text-sm text-blue-600';
+    }
+
+    try {
+        // settingsLogic.handleImportAllData handles its own confirm dialog
+        const result = await settingsLogic.handleImportAllData(file);
+
+        if (result.success) {
+            if(messageArea) messageArea.textContent = '데이터 복원 완료! 앱을 새로고침하여 변경사항을 확인하세요.';
+            if(messageArea) messageArea.className = 'mt-2 text-sm text-green-600';
+            alert('데이터 복원이 완료되었습니다. 애플리케이션을 새로고침합니다.');
+            window.location.reload();
+        } else {
+            if (result.userCancelled) {
+                if(messageArea) messageArea.textContent = '데이터 복원이 사용자에 의해 취소되었습니다.';
+                if(messageArea) messageArea.className = 'mt-2 text-sm text-slate-600';
+            } else {
+                throw new Error(result.error || '알 수 없는 가져오기 오류');
+            }
+        }
+    } catch (error) {
+        console.error("UI: Data import failed:", error);
+        if(messageArea) messageArea.textContent = `오류: 데이터 가져오기 실패 (${error.message})`;
+        if(messageArea) messageArea.className = 'mt-2 text-sm text-red-600';
+        // alert is now handled by settingsLogic for failure cases, or here if needed.
+        // The logic layer currently doesn't alert on its own error, so UI should.
+        alert(`데이터 가져오기 실패: ${error.message}`);
+    } finally {
+        if(importButton) importButton.disabled = false;
+        importFileInput.value = '';
+        if(selectedFileInfoDiv) selectedFileInfoDiv.textContent = '';
+    }
 }
