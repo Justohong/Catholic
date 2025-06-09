@@ -172,5 +172,44 @@
         </div>
     </div>
 
+    <!-- Schedule Inspection Modal -->
+    <div id="scheduleInspectionModal" class="modal">
+        <div class="modal-content max-w-3xl w-full"> <!-- Increased max-width for a wider table -->
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-semibold text-sky-700">월별 배정 현황 점검</h3>
+                <button id="closeInspectionModalBtn" class="text-slate-500 hover:text-slate-700">
+                    <i data-lucide="x" class="h-6 w-6"></i>
+                </button>
+            </div>
+            <div id="inspectionModalMessage" class="my-2 text-sm text-slate-600">
+                <!-- Messages related to inspection data loading or errors can be shown here -->
+            </div>
+            <div class="overflow-x-auto max-h-[60vh]"> <!-- Added max-height for scrollable body -->
+                <table class="min-w-full divide-y divide-slate-200 border border-slate-200 text-xs">
+                    <thead class="bg-slate-50 sticky top-0 z-10"> <!-- Sticky header -->
+                        <tr id="inspection-table-header-row">
+                            <!-- Dynamically populated by JS. Example:
+                            <th class="px-2 py-2 text-left font-medium text-slate-500 uppercase tracking-wider">이름</th>
+                            <th class="px-2 py-2 text-center font-medium text-slate-500 uppercase tracking-wider">총배정</th>
+                            -->
+                        </tr>
+                    </thead>
+                    <tbody id="inspection-table-body" class="bg-white divide-y divide-slate-200">
+                        <!-- Dynamically populated by JS. Example:
+                        <tr>
+                            <td class="px-2 py-2 whitespace-nowrap text-slate-700">홍길동</td>
+                            <td class="px-2 py-2 whitespace-nowrap text-slate-700 text-center">2</td>
+                            <td class="px-2 py-2 whitespace-nowrap text-slate-700 text-center"><span class="text-red-500 font-semibold">1</span> / 2</td>
+                        </tr>
+                        -->
+                    </tbody>
+                </table>
+            </div>
+            <div class="mt-6 text-right">
+                <button id="closeInspectionModalBtnBottom" class="btn btn-secondary py-2 px-4">닫기</button>
+            </div>
+        </div>
+    </div>
+
     <script type="module" src="app.js"></script></body>
 </html>
