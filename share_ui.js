@@ -276,6 +276,87 @@ function renderShareCalendar(year, month, scheduleDays, participantsList) {
     calendarContainer.appendChild(table);
 }
 
+// New renderInspectionTable function
+function renderInspectionTable(analysisData, uniqueCategoryKeys) { // uniqueCategoryKeys is now ['새벽', '1차랜덤', '2차랜덤']
+    if (!inspectionModal || !inspectionModalMessageDiv || !inspectionTableBody || !inspectionTableHeaderRow) {
+        console.error("Inspection modal table elements not found for rendering.");
+        if (inspectionModalMessageDiv) {
+            inspectionModalMessageDiv.textContent = '오류: 점검 모달의 테이블 구성 요소를 찾을 수 없습니다.';
+            inspectionModalMessageDiv.className = 'my-2 text-sm text-red-600';
+        }
+        return;
+    }
+
+    inspectionTableHeaderRow.innerHTML = '';
+    inspectionTableBody.innerHTML = '';
+
+    if (!analysisData || analysisData.length === 0) {
+        if (!inspectionModalMessageDiv.textContent || inspectionModalMessageDiv.className.includes('text-blue-600')) {
+             inspectionModalMessageDiv.textContent = '표시할 배정 분석 데이터가 없습니다.';
+             inspectionModalMessageDiv.className = 'my-2 text-sm text-slate-500';
+        }
+        return;
+    }
+
+    // 1. Create Table Header
+    const headerCellClasses = 'px-2 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider';
+    const headerTitles = ['초중구분', '이름', '총 배정', '새벽', '1차랜덤', '2차랜덤']; // New fixed headers
+
+    headerTitles.forEach(title => {
+        const th = document.createElement('th');
+        th.className = headerCellClasses;
+        if (['총 배정', '새벽', '1차랜덤', '2차랜덤'].includes(title)) {
+            th.classList.add('text-center');
+        }
+        th.textContent = title;
+        inspectionTableHeaderRow.appendChild(th);
+    });
+
+    // 2. Create Table Body
+    analysisData.forEach(participantAnalysis => {
+        const tr = inspectionTableBody.insertRow();
+
+        // '초중구분' Cell
+        const tdType = tr.insertCell();
+        tdType.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-800';
+        tdType.textContent = participantAnalysis.participantType;
+
+        // '이름' Cell
+        const tdName = tr.insertCell();
+        tdName.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-800 font-medium';
+        tdName.textContent = participantAnalysis.participantName;
+
+        // '총 배정' Cell
+        const tdTotal = tr.insertCell();
+        tdTotal.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-600 text-center';
+        tdTotal.textContent = participantAnalysis.totalAssignments;
+
+        // Aggregated Category Cells ('새벽', '1차랜덤', '2차랜덤')
+        const aggregatedKeysToDisplay = ['새벽', '1차랜덤', '2차랜덤'];
+
+        aggregatedKeysToDisplay.forEach(aggKey => {
+            const tdAgg = tr.insertCell();
+            tdAgg.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-600 text-center';
+            const categoryData = participantAnalysis.aggregatedByCategory ? participantAnalysis.aggregatedByCategory.get(aggKey) : null;
+
+            if (categoryData && categoryData.count > 0) {
+                if (categoryData.fixedCount > 0) {
+                    tdAgg.innerHTML = `${categoryData.count} (<span class="text-red-500 font-bold">${categoryData.fixedCount}</span>)`;
+                } else {
+                    tdAgg.textContent = categoryData.count;
+                }
+            } else {
+                tdAgg.textContent = '0';
+            }
+        });
+    });
+
+    if (typeof lucide !== 'undefined') {
+        lucide.createIcons();
+    }
+}
+// End of new renderInspectionTable function
+
 async function handleDownload() {
     if (!currentScheduleData) {
         messageDiv.textContent = '다운로드할 일정이 없습니다. 먼저 일정을 조회해주세요.';
@@ -289,22 +370,19 @@ async function handleDownload() {
         const calendarElement = document.getElementById('share-calendar-container');
         
         const originalCanvas = await html2canvas(calendarElement, {
-            scale: 2, // 고화질 이미지를 위해 스케일 2로 설정
+            scale: 2,
             useCORS: true,
             backgroundColor: '#ffffff',
-            logging: false, // 디버그 로깅 비활성화
+            logging: false,
             onclone: (documentClone) => {
-                // 복제된 문서 본문의 스타일 설정
                 documentClone.body.style.width = 'auto';
                 documentClone.body.style.height = 'auto';
                 documentClone.body.style.overflow = 'visible';
                 documentClone.body.style.margin = '0';
                 documentClone.body.style.padding = '0';
 
-                // 복제된 달력 컨테이너 스타일 설정
                 const clonedCalendarContainer = documentClone.getElementById('share-calendar-container');
                 if (clonedCalendarContainer) {
-                    // 컨테이너 크기와 위치 조정
                     clonedCalendarContainer.style.position = 'absolute';
                     clonedCalendarContainer.style.left = '0px';
                     clonedCalendarContainer.style.top = '0px';
@@ -315,65 +393,51 @@ async function handleDownload() {
                     clonedCalendarContainer.style.padding = '0';
                 }
 
-                // '오늘' 강조 스타일 제거 로직 추가
                 const todayCellClones = documentClone.querySelectorAll('.today-cell-highlight');
                 todayCellClones.forEach(cellClone => {
-                    cellClone.style.borderColor = '#e2e8f0'; // 기본 slate-200 색상
-                    cellClone.style.borderWidth = '1px';   // 기본 테두리 두께
-                    // cellClone.style.borderStyle = 'solid'; // 이미 solid일 것이므로 생략 가능
+                    cellClone.style.borderColor = '#e2e8f0';
+                    cellClone.style.borderWidth = '1px';
                 });
 
                 const todayNumberClones = documentClone.querySelectorAll('.today-number-highlight');
                 todayNumberClones.forEach(numDivClone => {
-                    numDivClone.style.color = '#64748b'; // 기본 slate-500 색상 (날짜 숫자)
-                    numDivClone.style.backgroundColor = 'transparent'; // 배경 없음
-                    numDivClone.style.borderRadius = ''; // 원형 배경 제거
-                    numDivClone.style.width = 'auto'; // 자동 너비
-                    numDivClone.style.height = 'auto'; // 자동 높이
-                    numDivClone.style.display = 'block'; // flex 해제, 기본 block으로
-                    numDivClone.style.textAlign = 'right'; // 원래 정렬 유지
-                    numDivClone.style.marginLeft = ''; // 자동 마진 해제
-                    numDivClone.style.fontWeight = '600'; // 기본 font-semibold
-                    numDivClone.style.lineHeight = '';    // 기본값 사용
-                    numDivClone.style.padding = ''; // 기본 패딩 사용
-                    // numDivClone.style.paddingRight = '0.25rem'; // 원래 있던 패딩 유지 가능
-                    // numDivClone.style.paddingLeft = '0.25rem';
+                    numDivClone.style.color = '#64748b';
+                    numDivClone.style.backgroundColor = 'transparent';
+                    numDivClone.style.borderRadius = '';
+                    numDivClone.style.width = 'auto';
+                    numDivClone.style.height = 'auto';
+                    numDivClone.style.display = 'block';
+                    numDivClone.style.textAlign = 'right';
+                    numDivClone.style.marginLeft = '';
+                    numDivClone.style.fontWeight = '600';
+                    numDivClone.style.lineHeight = '';
+                    numDivClone.style.padding = '';
                 });
             }
         });
 
         const newCanvas = document.createElement('canvas');
-        const titleBarHeight = Math.max(60, originalCanvas.width * 0.05); // 제목 표시줄 높이
+        const titleBarHeight = Math.max(60, originalCanvas.width * 0.05);
         newCanvas.width = originalCanvas.width;
         newCanvas.height = originalCanvas.height + titleBarHeight;
         
         const ctx = newCanvas.getContext('2d');
-
-        // 배경 색상 설정
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, newCanvas.width, newCanvas.height);
-        
-        // 원본 캔버스 그리기
         ctx.drawImage(originalCanvas, 0, titleBarHeight);
-        
-        // 제목 표시줄 그리기
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, newCanvas.width, titleBarHeight);
 
-        // 제목 텍스트 설정
         const titleText = `${currentYear}년 ${currentMonth}월`;
         const fontSize = Math.max(20, Math.min(originalCanvas.width * 0.03, 32));
         ctx.font = `bold ${fontSize}px sans-serif`;
-        ctx.fillStyle = '#334155'; // slate-700
+        ctx.fillStyle = '#334155';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        
         const textX = newCanvas.width / 2;
         const textY = titleBarHeight / 2;
-        
         ctx.fillText(titleText, textX, textY);
 
-        // 이미지 다운로드
         const image = newCanvas.toDataURL('image/png');
         const link = document.createElement('a');
         link.download = `${currentYear}_${String(currentMonth).padStart(2, '0')}_일정.png`;
@@ -403,7 +467,7 @@ function openEditModal(date, time, slotType, participantIdToEdit, originalAssign
     originalAssignments.forEach(pid => {
         const pData = participantsMap.get(pid);
         const pName = pData?.name || `ID:${pid}`;
-        const pType = pData?.type; // '초등' or '중등'
+        const pType = pData?.type;
         const pDiv = document.createElement('div');
         pDiv.className = 'flex justify-between items-center bg-slate-100 p-2 rounded mb-1';
         
@@ -421,7 +485,7 @@ function openEditModal(date, time, slotType, participantIdToEdit, originalAssign
         if ((time === '06:00' || time === '07:00') && currentScheduleData) {
             const dayData = currentScheduleData.data.find(d => d.date === date);
             const slotData = dayData?.timeSlots.find(s => s.time === time);
-            if (slotData?.fixed) { // Check if this slot is a 'fixed' slot
+            if (slotData?.fixed) {
                  nameTypeSpan.classList.add('font-extrabold');
             }
         }
@@ -436,7 +500,7 @@ function openEditModal(date, time, slotType, participantIdToEdit, originalAssign
                     try {
                         await shareLogic.unassignParticipant(currentYear, currentMonth, date, time, participantIdToEdit);
                         closeEditModal();
-                        await loadAndRenderCalendar(currentYear, currentMonth); // Refresh calendar
+                        await loadAndRenderCalendar(currentYear, currentMonth);
                          messageDiv.textContent = `${pName}님 배정 해제 완료.`;
                          messageDiv.className = 'my-2 text-green-600';
                     } catch (error) {
@@ -452,7 +516,7 @@ function openEditModal(date, time, slotType, participantIdToEdit, originalAssign
     lucide.createIcons();
 
 
-    modalGenderFilter.value = 'all'; // Reset filter
+    modalGenderFilter.value = 'all';
     populateParticipantSelect();
     modal.classList.add('active');
 }
@@ -461,14 +525,10 @@ async function populateParticipantSelect() {
     if (!editContext) return;
     const { date, slotType, originalAssignments, participantIdToEdit } = editContext;
     const genderFilter = modalGenderFilter.value;
-
-
-
-
     
     const availableParticipants = await shareLogic.getAvailableParticipantsForSlot(
         date,
-        slotType, // This is crucial: '초등' or '중등' from the slot characteristics
+        slotType,
         originalAssignments.filter(id => id !== participantIdToEdit), 
         genderFilter,
         allParticipants,
@@ -505,17 +565,15 @@ async function handleSaveAssignment() {
 
     const { date, time, participantIdToEdit, originalAssignments } = editContext;
     
-
     if (originalAssignments.includes(newParticipantId) && newParticipantId !== participantIdToEdit) {
         modalMessageDiv.textContent = '선택한 인원은 이미 이 시간대에 다른 역할로 배정되어 있습니다.';
         return;
     }
 
-
     try {
         await shareLogic.replaceParticipant(currentYear, currentMonth, date, time, participantIdToEdit, newParticipantId);
         closeEditModal();
-        await loadAndRenderCalendar(currentYear, currentMonth); // Refresh calendar
+        await loadAndRenderCalendar(currentYear, currentMonth);
         messageDiv.textContent = '일정 변경 저장 완료.';
         messageDiv.className = 'my-2 text-green-600';
     } catch (error) {
