@@ -165,24 +165,24 @@ function renderShareCalendar(year, month, scheduleDays, participantsList) {
                 cell.appendChild(dayNumberDiv);
 
                 if (isCurrentDayToday) {
-                    dayNumberDiv.style.color = '#0284c7'; // sky-600
-                    dayNumberDiv.style.backgroundColor = '#e0f2fe'; // sky-100
-                    dayNumberDiv.style.borderRadius = '9999px'; // rounded-full
-                    dayNumberDiv.style.width = '1.5rem'; // w-6
-                    dayNumberDiv.style.height = '1.5rem'; // h-6
-                    dayNumberDiv.style.display = 'flex';
-                    dayNumberDiv.style.alignItems = 'center';
-                    dayNumberDiv.style.justifyContent = 'center';
-                    dayNumberDiv.style.marginLeft = 'auto';
-                    dayNumberDiv.style.fontWeight = '700'; // font-bold
-                    dayNumberDiv.style.lineHeight = '1'; // leading-none
-                    dayNumberDiv.style.padding = '0px'; // Reset padding
-                    dayNumberDiv.classList.add('today-number-highlight'); // 식별용 클래스 추가
+                    // dayNumberDiv.style.color = '#0284c7'; // sky-600
+                    // dayNumberDiv.style.backgroundColor = '#e0f2fe'; // sky-100
+                    // dayNumberDiv.style.borderRadius = '9999px'; // rounded-full
+                    // dayNumberDiv.style.width = '1.5rem'; // w-6
+                    // dayNumberDiv.style.height = '1.5rem'; // h-6
+                    // dayNumberDiv.style.display = 'flex';
+                    // dayNumberDiv.style.alignItems = 'center';
+                    // dayNumberDiv.style.justifyContent = 'center';
+                    // dayNumberDiv.style.marginLeft = 'auto';
+                    // dayNumberDiv.style.fontWeight = '700'; // font-bold
+                    // dayNumberDiv.style.lineHeight = '1'; // leading-none
+                    // dayNumberDiv.style.padding = '0px'; // Reset padding
+                    // dayNumberDiv.classList.add('today-number-highlight'); // 식별용 클래스 추가
 
-                    cell.style.borderColor = '#7dd3fc'; // sky-300
-                    cell.style.borderWidth = '2px';
-                    cell.style.borderStyle = 'solid';
-                    cell.classList.add('today-cell-highlight'); // 식별용 클래스 추가
+                    // cell.style.borderColor = '#7dd3fc'; // sky-300
+                    // cell.style.borderWidth = '2px';
+                    // cell.style.borderStyle = 'solid';
+                    // cell.classList.add('today-cell-highlight'); // 식별용 클래스 추가
                 }
 
                 const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
