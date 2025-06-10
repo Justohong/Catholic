@@ -493,8 +493,11 @@ async function handleGenerateSchedule() {
     displayMessage('일정을 생성 중입니다...', 'info');
 
     try {
-        const scheduleData = await logic.generateSchedule(year, month);
-        renderCalendar(year, month, scheduleData);
+        const resultObject = await logic.generateSchedule(year, month); // NEW: Renamed variable
+
+        // Optional: console.log('Assignment Summary:', resultObject.assignmentSummary); // For debugging or future use
+
+        renderCalendar(year, month, resultObject.schedule); // NEW: Use resultObject.schedule
         displayMessage('일정이 성공적으로 생성되었습니다.', 'success');
     } catch (error) {
         console.error("Schedule generation failed:", error);
