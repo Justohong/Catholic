@@ -60,13 +60,20 @@ export async function analyzeScheduleForInspection(year, month) {
         inspectionAnalysis.set(p.id, {
             participantId: p.id,
             participantName: p.name,
+            participantType: p.type, // <-- ADDED
             totalAssignments: 0,
             assignmentsByCategory
         });
     });
 
     if (!scheduleObject || !scheduleObject.data || scheduleObject.data.length === 0) {
-        // 일정이 없어도 참가자 목록과 0회 배정으로 결과 반환
+        // 일정이 없어도 참가자 목록과 0회 배정으로 결과 반환 (Aggregated categories for consistency)
+        for (const participantAnalysis of inspectionAnalysis.values()) {
+            participantAnalysis.aggregatedByCategory = new Map();
+            participantAnalysis.aggregatedByCategory.set('새벽', { count: 0, fixedCount: 0 });
+            participantAnalysis.aggregatedByCategory.set('1차랜덤', { count: 0, fixedCount: 0 });
+            participantAnalysis.aggregatedByCategory.set('2차랜덤', { count: 0, fixedCount: 0 });
+        }
         const resultForNoSchedule = Array.from(inspectionAnalysis.values());
         resultForNoSchedule.sort((a, b) => {
             if (b.totalAssignments !== a.totalAssignments) {
@@ -74,10 +81,11 @@ export async function analyzeScheduleForInspection(year, month) {
             }
             return a.participantName.localeCompare(b.participantName);
         });
+        const newAggregatedCategoryKeys = ['새벽', '1차랜덤', '2차랜덤'];
         return {
             message: "해당 월에 생성된 일정이 없습니다.",
             analysis: resultForNoSchedule,
-            uniqueCategoryKeys: allCategoryKeys.sort()
+            uniqueCategoryKeys: newAggregatedCategoryKeys
         };
     }
 
@@ -118,8 +126,42 @@ export async function analyzeScheduleForInspection(year, month) {
         return a.participantName.localeCompare(b.participantName); // 이름순으로 2차 정렬
     });
 
+    // Calculate and store aggregated categories
+    const el_6am = CORE_CATEGORIES.elementary;
+    const mid_7am = CORE_CATEGORIES.middle;
+    const el_rand = 'elementary_random';
+    const mid_rand = 'middle_random';
+    const el_fall = 'elementary_random_fallback';
+    const mid_fall = 'middle_random_fallback';
+
+    for (const participantAnalysis of finalAnalysis) {
+        participantAnalysis.aggregatedByCategory = new Map();
+
+        const el_6am_data = participantAnalysis.assignmentsByCategory.get(el_6am) || { count: 0, fixedCount: 0 };
+        const mid_7am_data = participantAnalysis.assignmentsByCategory.get(mid_7am) || { count: 0, fixedCount: 0 };
+        const el_rand_data = participantAnalysis.assignmentsByCategory.get(el_rand) || { count: 0, fixedCount: 0 };
+        const mid_rand_data = participantAnalysis.assignmentsByCategory.get(mid_rand) || { count: 0, fixedCount: 0 };
+        const el_fall_data = participantAnalysis.assignmentsByCategory.get(el_fall) || { count: 0, fixedCount: 0 };
+        const mid_fall_data = participantAnalysis.assignmentsByCategory.get(mid_fall) || { count: 0, fixedCount: 0 };
+
+        participantAnalysis.aggregatedByCategory.set('새벽', {
+            count: el_6am_data.count + mid_7am_data.count,
+            fixedCount: el_6am_data.fixedCount + mid_7am_data.fixedCount
+        });
+        participantAnalysis.aggregatedByCategory.set('1차랜덤', {
+            count: el_rand_data.count + mid_rand_data.count,
+            fixedCount: el_rand_data.fixedCount + mid_rand_data.fixedCount
+        });
+        participantAnalysis.aggregatedByCategory.set('2차랜덤', {
+            count: el_fall_data.count + mid_fall_data.count,
+            fixedCount: el_fall_data.fixedCount + mid_fall_data.fixedCount
+        });
+    }
+
+    const newAggregatedCategoryKeys = ['새벽', '1차랜덤', '2차랜덤'];
+
     return {
         analysis: finalAnalysis,
-        uniqueCategoryKeys: allCategoryKeys.sort() // 정렬된 카테고리 키 목록도 반환 (테이블 헤더 생성용)
+        uniqueCategoryKeys: newAggregatedCategoryKeys
     };
 }
