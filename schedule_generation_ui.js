@@ -83,27 +83,6 @@ export function initScheduleGenerationView(viewElementId) {
             titleWrapper.appendChild(actionButtonsWrapper);
         }
 
-        // Excel Download Button
-        let downloadExcelBtn = view.querySelector('#download-schedule-excel-btn');
-        if (!downloadExcelBtn) {
-            downloadExcelBtn = document.createElement('button');
-            downloadExcelBtn.id = 'download-schedule-excel-btn';
-            downloadExcelBtn.addEventListener('click', handleDownloadScheduleExcel);
-        }
-        downloadExcelBtn.innerHTML = '<i data-lucide="file-spreadsheet" class="h-5 w-5"></i>';
-        downloadExcelBtn.title = '현재 월 일정 엑셀 다운로드';
-        downloadExcelBtn.className = 'btn btn-icon text-sky-600 hover:bg-slate-100 p-2'; // ml-2 removed, btn-primary removed
-        // Ensure it's in the wrapper and in the correct order
-        if (downloadExcelBtn.parentNode !== actionButtonsWrapper) {
-            actionButtonsWrapper.appendChild(downloadExcelBtn);
-        }
-
-        // Reset Button (already found or created)
-        // Ensure downloadExcelBtn is in the wrapper (it should be by now)
-        if (downloadExcelBtn.parentNode !== actionButtonsWrapper) {
-            actionButtonsWrapper.appendChild(downloadExcelBtn);
-        }
-
         // Inspect Schedule Button
         let inspectScheduleBtn = view.querySelector('#inspect-schedule-btn');
         if (!inspectScheduleBtn) {
@@ -112,9 +91,9 @@ export function initScheduleGenerationView(viewElementId) {
         }
         inspectScheduleBtn.innerHTML = '<i data-lucide="clipboard-list" class="h-5 w-5"></i>';
         inspectScheduleBtn.title = '월별 배정 현황 점검';
-        inspectScheduleBtn.className = 'btn btn-icon btn-secondary p-2'; // Using secondary as an example
+        inspectScheduleBtn.className = 'btn btn-icon text-slate-700 hover:text-sky-600 hover:bg-slate-100 p-2'; // Restyled
 
-        // Append Inspect button after Excel button
+        // Append Inspect button
         actionButtonsWrapper.appendChild(inspectScheduleBtn);
 
         // Ensure Reset button is last
@@ -129,24 +108,11 @@ export function initScheduleGenerationView(viewElementId) {
         console.warn("Section title H2 not found. Appending action buttons to generateBtn's parent as a fallback.");
         const fallbackContainer = generateBtn.parentNode;
         if (fallbackContainer) {
-            // Excel Download Button (Fallback)
-            let downloadExcelBtn = view.querySelector('#download-schedule-excel-btn');
-            if (!downloadExcelBtn) {
-                downloadExcelBtn = document.createElement('button');
-                downloadExcelBtn.id = 'download-schedule-excel-btn';
-                downloadExcelBtn.addEventListener('click', handleDownloadScheduleExcel);
-            }
-            downloadExcelBtn.innerHTML = '<i data-lucide="file-spreadsheet" class="h-5 w-5"></i>';
-            downloadExcelBtn.title = '현재 월 일정 엑셀 다운로드';
-            downloadExcelBtn.className = 'btn btn-icon text-sky-600 hover:bg-slate-100 p-2'; // No margin, btn-primary removed
-
             // Reset Button (Fallback)
             // resetBtn should already be defined
             resetBtn.className = 'btn btn-icon btn-warning p-2 ml-2'; // Add margin if in fallback container
 
-            // Append in order: existing buttons, then download, then reset
-            // This might need more sophisticated checks if other buttons exist
-            if (downloadExcelBtn.parentNode !== fallbackContainer) fallbackContainer.appendChild(downloadExcelBtn);
+            // Append in order: existing buttons, then reset
             if (resetBtn.parentNode !== fallbackContainer) fallbackContainer.appendChild(resetBtn);
         } else {
             console.error("Fallback container (generateBtn.parentNode) not found.");
