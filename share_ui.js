@@ -61,9 +61,12 @@ export async function initShareView() {
 
     // Create a wrapper for icon buttons
     const iconButtonsWrapper = document.createElement('div');
-    iconButtonsWrapper.style.display = 'flex';
-    iconButtonsWrapper.style.alignItems = 'center';
-    iconButtonsWrapper.style.gap = '0.5rem'; // 8px
+    iconButtonsWrapper.style.display = 'flex';         // Existing, confirm
+    iconButtonsWrapper.style.alignItems = 'center';    // Existing, confirm
+    iconButtonsWrapper.style.gap = '0.5rem';           // Existing, confirm (8px)
+    iconButtonsWrapper.style.width = '100%';           // New
+    iconButtonsWrapper.style.justifyContent = 'flex-end'; // New
+    iconButtonsWrapper.style.marginBottom = '0.75rem'; // New (12px)
 
     inspectShareScheduleBtn.addEventListener('click', () => {
         const yearStr = yearInput.value; // yearInput is already defined for share_ui.js
@@ -88,43 +91,36 @@ export async function initShareView() {
     // Append the inspect button to the new wrapper
     iconButtonsWrapper.appendChild(inspectShareScheduleBtn);
 
-    // Relocate iconButtonsWrapper to be part of the title line
-    const titleElement = document.querySelector('#share-view h2');
+    // Ensure iconButtonsWrapper is detached from any previous parent before re-inserting.
+    if (iconButtonsWrapper.parentNode) {
+        iconButtonsWrapper.parentNode.removeChild(iconButtonsWrapper);
+    }
 
-    if (titleElement && titleElement.parentNode) {
-        const parentOfTitle = titleElement.parentNode;
+    // The following block that placed iconButtonsWrapper in the title line is removed / replaced.
+    // const titleElement = document.querySelector('#share-view h2');
+    // if (titleElement && titleElement.parentNode) { ... logic to insert into title line ... }
+    // else { ... fallback logic ... }
 
-        // Check if parentOfTitle is already the kind of wrapper we want (e.g., by a specific ID or existing style)
-        // For this task, we'll create a new wrapper to ensure correct styling and structure.
-        // If parentOfTitle has a specific ID like 'title-line-wrapper', we could reuse it.
-        // const existingTitleLineWrapper = document.getElementById('title-line-wrapper'); // Example
-
-        // If the iconButtonsWrapper was previously inserted elsewhere, remove it first.
-        // (Assuming it was inserted next to viewScheduleBtn and needs to be moved)
-        if (iconButtonsWrapper.parentNode) {
-            iconButtonsWrapper.parentNode.removeChild(iconButtonsWrapper);
+    // New positioning: Place iconButtonsWrapper above the controlsContainer (parent of viewScheduleBtn)
+    if (viewScheduleBtn && viewScheduleBtn.parentNode) {
+        const controlsContainer = viewScheduleBtn.parentNode; // This is the div holding year/month inputs and view button
+        if (controlsContainer && controlsContainer.parentNode) {
+            controlsContainer.parentNode.insertBefore(iconButtonsWrapper, controlsContainer);
+        } else {
+            console.error("Controls container or its parent not found. Could not insert iconButtonsWrapper above controls.");
+            // Fallback: if the structure is not as expected, append to viewScheduleBtn's parent to ensure visibility
+            // This might be redundant if controlsContainer exists but its parent doesn't, but acts as a safety.
+            viewScheduleBtn.parentNode.appendChild(iconButtonsWrapper);
         }
-
-        const titleLineWrapper = document.createElement('div');
-        titleLineWrapper.id = 'share-title-line-wrapper'; // Added an ID for clarity/potential reuse
-        titleLineWrapper.style.display = 'flex';
-        titleLineWrapper.style.justifyContent = 'space-between';
-        titleLineWrapper.style.alignItems = 'center';
-        titleLineWrapper.style.marginBottom = titleElement.classList.contains('mb-4') ? '0' : '1rem'; // Adjust margin if h2 already has it
-
-        // Insert the new wrapper where the title was, then move the title and buttons into it.
-        parentOfTitle.insertBefore(titleLineWrapper, titleElement);
-        titleLineWrapper.appendChild(titleElement);
-        if(titleElement.classList.contains('mb-4')) titleElement.classList.remove('mb-4'); // Remove margin from h2 if wrapper handles it
-
-        titleLineWrapper.appendChild(iconButtonsWrapper);
-
     } else {
-        console.error("Title element (h2) not found in #share-view, or it has no parent. Icon buttons not placed in title line.");
-        // Fallback: if title not found, append iconButtonsWrapper where it was before (next to viewScheduleBtn)
-        // This ensures buttons are still visible if the title structure is unexpected.
-        if (viewScheduleBtn && viewScheduleBtn.parentNode && !iconButtonsWrapper.parentNode) { // Check if not already appended
-            viewScheduleBtn.parentNode.insertBefore(iconButtonsWrapper, viewScheduleBtn.nextSibling);
+        console.error("viewScheduleBtn or its parent not found. Could not determine controlsContainer.");
+        // Fallback: As a last resort, try to append to a known container like the parent of downloadBtn,
+        // or the main share-view div if nothing else is found.
+        const shareViewMainContainer = document.getElementById('share-view'); // Assuming share-view is the main container
+        if (shareViewMainContainer) {
+            shareViewMainContainer.insertBefore(iconButtonsWrapper, shareViewMainContainer.firstChild); // Insert at the top of share-view
+        } else if (downloadBtn && downloadBtn.parentNode) {
+             downloadBtn.parentNode.insertBefore(iconButtonsWrapper, downloadBtn);
         }
     }
     // Note: The downloadBtn remains separate.
