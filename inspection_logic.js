@@ -76,9 +76,20 @@ export async function analyzeScheduleForInspection(year, month) {
         }
         const resultForNoSchedule = Array.from(inspectionAnalysis.values());
         resultForNoSchedule.sort((a, b) => {
+            // Primary sort: participantType ('초등' then '중등')
+            if (a.participantType === '초등' && b.participantType === '중등') {
+                return -1;
+            }
+            if (a.participantType === '중등' && b.participantType === '초등') {
+                return 1;
+            }
+
+            // Secondary sort: totalAssignments (descending) - will be 0 for this case
             if (b.totalAssignments !== a.totalAssignments) {
                 return b.totalAssignments - a.totalAssignments;
             }
+
+            // Tertiary sort: participantName (ascending)
             return a.participantName.localeCompare(b.participantName);
         });
         const newAggregatedCategoryKeys = ['새벽', '1차랜덤', '2차랜덤'];
@@ -120,10 +131,22 @@ export async function analyzeScheduleForInspection(year, month) {
 
     const finalAnalysis = Array.from(inspectionAnalysis.values());
     finalAnalysis.sort((a, b) => {
+        // Primary sort: participantType ('초등' then '중등')
+        if (a.participantType === '초등' && b.participantType === '중등') {
+            return -1; // '초등' comes before '중등'
+        }
+        if (a.participantType === '중등' && b.participantType === '초등') {
+            return 1;  // '중등' comes after '초등'
+        }
+
+        // Secondary sort: totalAssignments (descending)
+        // This applies if types are the same
         if (b.totalAssignments !== a.totalAssignments) {
             return b.totalAssignments - a.totalAssignments;
         }
-        return a.participantName.localeCompare(b.participantName); // 이름순으로 2차 정렬
+
+        // Tertiary sort: participantName (ascending)
+        return a.participantName.localeCompare(b.participantName);
     });
 
     // Calculate and store aggregated categories
