@@ -142,13 +142,124 @@ export function initScheduleGenerationView(viewElementId) {
 
     let currentInspectBtn = view.querySelector('#inspect-schedule-btn');
     if (currentInspectBtn) {
+        // Remove listener for the (new) openScheduleInspectionModal to avoid direct calls without params
         currentInspectBtn.removeEventListener('click', openScheduleInspectionModal);
-        currentInspectBtn.addEventListener('click', openScheduleInspectionModal);
+        // Add the correct handler
+        currentInspectBtn.removeEventListener('click', handleInspectScheduleButtonClick); // Remove first to be safe
+        currentInspectBtn.addEventListener('click', handleInspectScheduleButtonClick);
     }
 
     lucide.createIcons();
+}
+
+// New handler for the "Inspect Schedule" button click in the UI
+async function handleInspectScheduleButtonClick() {
+    if (!yearInput || !monthInput) {
+        console.error("Year or Month input not found for inspect button. Ensure yearInput and monthInput are initialized.");
+        alert("년도 또는 월 입력 필드를 찾을 수 없습니다. 페이지 UI요소를 확인해주세요.");
+        return;
+    }
+    const yearStr = yearInput.value;
+    const monthStr = monthInput.value;
+
+    if (!yearStr || !monthStr) {
+        alert("점검을 위해 년도와 월을 입력해주세요.");
+        return;
+    }
+    const year = parseInt(yearStr);
+    const month = parseInt(monthStr);
+
+    if (isNaN(year) || isNaN(month) || year < 2000 || year > 2100 || month < 1 || month > 12) {
+        alert("유효한 년도(2000-2100)와 월(1-12)을 입력해주세요.");
+        return;
+    }
+    // Call the new, parameterized and exported function
+    await openScheduleInspectionModal(year, month);
     loadInitialScheduleForCurrentDate();
 }
+
+// Helper function for modal outside click, to be used with removeEventListener
+function handleModalOutsideClick(event) {
+    if (event.target === inspectionModal) {
+        closeScheduleInspectionModal();
+    }
+}
+
+// New exported function that accepts year and month
+export async function openScheduleInspectionModal(year, month) {
+    // Initialize DOM elements if not already done (e.g., if called before initScheduleGenerationView or from another module)
+    if (!inspectionModal) {
+        inspectionModal = document.getElementById('scheduleInspectionModal');
+        closeInspectionModalBtnTop = document.getElementById('closeInspectionModalBtn');
+        closeInspectionModalBtnBottom = document.getElementById('closeInspectionModalBtnBottom');
+        inspectionModalMessageDiv = document.getElementById('inspectionModalMessage');
+        inspectionTableHeaderRow = document.getElementById('inspection-table-header-row');
+        inspectionTableBody = document.getElementById('inspection-table-body');
+    }
+
+    // Attach listeners if not already attached.
+    // This ensures that if this function is called standalone, the modal still works.
+    if (inspectionModal && !inspectionModalListenersAttached) {
+        if (closeInspectionModalBtnTop) {
+            // Remove existing listener before adding to prevent duplicates if any previous attachment attempt failed partially
+            closeInspectionModalBtnTop.removeEventListener('click', closeScheduleInspectionModal);
+            closeInspectionModalBtnTop.addEventListener('click', closeScheduleInspectionModal);
+        }
+        if (closeInspectionModalBtnBottom) {
+            closeInspectionModalBtnBottom.removeEventListener('click', closeScheduleInspectionModal);
+            closeInspectionModalBtnBottom.addEventListener('click', closeScheduleInspectionModal);
+        }
+        // Use a named function for the outside click handler to allow for proper removal
+        inspectionModal.removeEventListener('click', handleModalOutsideClick);
+        inspectionModal.addEventListener('click', handleModalOutsideClick);
+        inspectionModalListenersAttached = true; // Set the flag after attaching
+    }
+
+    // Validate year and month parameters
+    if (!year || !month || typeof year !== 'number' || typeof month !== 'number') {
+        alert("점검할 년도와 월이 올바르게 전달되지 않았습니다. (예: 2023, 12)");
+        console.error("openScheduleInspectionModal: Invalid year or month parameters", { year, month });
+        return;
+    }
+
+    // Ensure critical modal elements are now available after attempting to fetch them
+    if (!inspectionModal || !inspectionModalMessageDiv || !inspectionTableBody || !inspectionTableHeaderRow) {
+        console.error("Inspection modal elements not found even after attempting to initialize.");
+        alert("점검 모달의 중요 구성 요소를 찾을 수 없습니다. 페이지가 완전히 로드되었는지 확인하거나 다시 시도해주세요.");
+        return;
+    }
+
+    inspectionModalMessageDiv.textContent = '배정 현황 데이터 분석 중...';
+    inspectionModalMessageDiv.className = 'my-2 text-sm text-blue-600';
+    inspectionTableBody.innerHTML = '';
+    inspectionTableHeaderRow.innerHTML = '';
+    inspectionModal.classList.add('active');
+
+    try {
+        const result = await inspectionLogic.analyzeScheduleForInspection(year, month); // Uses year, month parameters
+        if (result.error) {
+            inspectionModalMessageDiv.textContent = result.error;
+            inspectionModalMessageDiv.className = 'my-2 text-sm text-red-600';
+            return;
+        }
+        if (result.message) {
+            inspectionModalMessageDiv.textContent = result.message;
+            inspectionModalMessageDiv.className = 'my-2 text-sm text-slate-600';
+        } else {
+            inspectionModalMessageDiv.textContent = ''; // Clear previous messages if no new message
+        }
+        renderInspectionTable(result.analysis, result.uniqueCategoryKeys);
+        if (result.analysis && result.analysis.length > 0 && !result.message && !result.error) {
+            inspectionModalMessageDiv.textContent = `${year}년 ${month}월 배정 현황 (총 배정 많은 순). 붉은색 숫자는 결석자 우선 배정 횟수입니다.`;
+            inspectionModalMessageDiv.className = 'my-2 text-sm text-slate-600';
+        }
+    } catch (error) {
+        console.error("Error during schedule inspection analysis:", error);
+        inspectionModalMessageDiv.textContent = `분석 중 오류 발생: ${error.message}`;
+        inspectionModalMessageDiv.className = 'my-2 text-sm text-red-600';
+    }
+}
+
 
 async function handleViewExistingSchedule() {
     const year = parseInt(yearInput.value);
@@ -174,50 +285,29 @@ async function handleViewExistingSchedule() {
     if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
-async function openScheduleInspectionModal() {
-    const year = parseInt(yearInput.value);
-    const month = parseInt(monthInput.value);
-    if (!year || !month) { alert("점검할 일정을 위해 년도와 월을 먼저 선택하거나 생성해주세요."); return; }
-    if (!inspectionModal || !inspectionModalMessageDiv || !inspectionTableBody || !inspectionTableHeaderRow) {
-        console.error("Inspection modal elements not found."); alert("점검 모달의 구성 요소를 찾을 수 없습니다."); return;
-    }
-    inspectionModalMessageDiv.textContent = '배정 현황 데이터 분석 중...';
-    inspectionModalMessageDiv.className = 'my-2 text-sm text-blue-600';
-    inspectionTableBody.innerHTML = ''; inspectionTableHeaderRow.innerHTML = '';
-    inspectionModal.classList.add('active');
-    try {
-        const result = await inspectionLogic.analyzeScheduleForInspection(year, month);
-        if (result.error) {
-            inspectionModalMessageDiv.textContent = result.error;
-            inspectionModalMessageDiv.className = 'my-2 text-sm text-red-600'; return;
-        }
-        if (result.message) {
-             inspectionModalMessageDiv.textContent = result.message;
-             inspectionModalMessageDiv.className = 'my-2 text-sm text-slate-600';
-        } else {
-             inspectionModalMessageDiv.textContent = '';
-        }
-        renderInspectionTable(result.analysis, result.uniqueCategoryKeys);
-        if (result.analysis && result.analysis.length > 0 && !result.message && !result.error) {
-            inspectionModalMessageDiv.textContent = `${year}년 ${month}월 배정 현황 (총 배정 많은 순). 붉은색 숫자는 결석자 우선 배정 횟수입니다.`;
-            inspectionModalMessageDiv.className = 'my-2 text-sm text-slate-600';
-        }
-    } catch (error) {
-        console.error("Error during schedule inspection analysis:", error);
-        inspectionModalMessageDiv.textContent = `분석 중 오류 발생: ${error.message}`;
-        inspectionModalMessageDiv.className = 'my-2 text-sm text-red-600';
-    }
-}
+// The old openScheduleInspectionModal function is removed.
+// The button click will be handled by handleInspectScheduleButtonClick
 
-// --- START OF NEW/REPLACED renderInspectionTable FUNCTION ---
-function renderInspectionTable(analysisData, uniqueCategoryKeys) { // uniqueCategoryKeys is now ['새벽', '1차랜덤', '2차랜덤']
-    if (!inspectionModal || !inspectionModalMessageDiv || !inspectionTableBody || !inspectionTableHeaderRow) {
-        console.error("Inspection modal table elements not found for rendering.");
-        if (inspectionModalMessageDiv) {
-            inspectionModalMessageDiv.textContent = '오류: 점검 모달의 테이블 구성 요소를 찾을 수 없습니다.';
-            inspectionModalMessageDiv.className = 'my-2 text-sm text-red-600';
+// --- START OF MODIFIED renderInspectionTable FUNCTION ---
+export function renderInspectionTable(analysisData, uniqueCategoryKeys) { // Added export
+    // Defensive check for modal elements, try to get them if not available.
+    if (!inspectionModal || !inspectionTableBody || !inspectionTableHeaderRow) {
+        inspectionModal = document.getElementById('scheduleInspectionModal');
+        inspectionTableBody = document.getElementById('inspection-table-body');
+        inspectionTableHeaderRow = document.getElementById('inspection-table-header-row');
+        // messageDiv might also need to be fetched if used for errors here
+        if (!inspectionModalMessageDiv) {
+             inspectionModalMessageDiv = document.getElementById('inspectionModalMessage');
         }
-        return;
+
+        if (!inspectionModal || !inspectionTableBody || !inspectionTableHeaderRow) {
+            console.error("Inspection modal table elements not found for rendering even after re-fetch.");
+            if (inspectionModalMessageDiv) { // Check if messageDiv was fetched successfully
+                inspectionModalMessageDiv.textContent = '오류: 점검 모달의 테이블 구성 요소를 찾을 수 없습니다.';
+                inspectionModalMessageDiv.className = 'my-2 text-sm text-red-600';
+            }
+            return;
+        }
     }
 
     inspectionTableHeaderRow.innerHTML = '';
@@ -296,9 +386,9 @@ function renderInspectionTable(analysisData, uniqueCategoryKeys) { // uniqueCate
         lucide.createIcons();
     }
 }
-// --- END OF NEW renderInspectionTable FUNCTION ---
+// --- END OF MODIFIED renderInspectionTable FUNCTION ---
 
-function closeScheduleInspectionModal() {
+export function closeScheduleInspectionModal() { // Added export
     if (inspectionModal) {
         inspectionModal.classList.remove('active');
     }
