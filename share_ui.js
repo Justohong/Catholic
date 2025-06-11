@@ -61,12 +61,12 @@ export async function initShareView() {
 
     // Create a wrapper for icon buttons
     const iconButtonsWrapper = document.createElement('div');
-    iconButtonsWrapper.style.display = 'flex';         // Existing, confirm
-    iconButtonsWrapper.style.alignItems = 'center';    // Existing, confirm
-    iconButtonsWrapper.style.gap = '0.5rem';           // Existing, confirm (8px)
-    iconButtonsWrapper.style.width = '100%';           // New
-    iconButtonsWrapper.style.justifyContent = 'flex-end'; // New
-    iconButtonsWrapper.style.marginBottom = '0.75rem'; // New (12px)
+    iconButtonsWrapper.style.display = 'flex';       // Kept for internal alignment of icons
+    iconButtonsWrapper.style.alignItems = 'center';  // Kept for internal alignment of icons
+    iconButtonsWrapper.style.gap = '0.5rem';         // Kept for spacing between icons
+    iconButtonsWrapper.style.width = '';             // Reset: No longer full width as a block
+    iconButtonsWrapper.style.justifyContent = 'flex-start'; // Reset: Alignment handled by parent titleLineWrapper
+    iconButtonsWrapper.style.marginBottom = '';      // Reset: Margin handled by parent titleLineWrapper
 
     inspectShareScheduleBtn.addEventListener('click', () => {
         const yearStr = yearInput.value; // yearInput is already defined for share_ui.js
@@ -96,31 +96,73 @@ export async function initShareView() {
         iconButtonsWrapper.parentNode.removeChild(iconButtonsWrapper);
     }
 
-    // The following block that placed iconButtonsWrapper in the title line is removed / replaced.
-    // const titleElement = document.querySelector('#share-view h2');
-    // if (titleElement && titleElement.parentNode) { ... logic to insert into title line ... }
-    // else { ... fallback logic ... }
+    // Logic to place iconButtonsWrapper on the title line
+    const titleElement = document.querySelector('#share-view h2');
+    if (titleElement) {
+        let titleLineWrapper = document.getElementById('share-title-line-wrapper');
 
-    // New positioning: Place iconButtonsWrapper above the controlsContainer (parent of viewScheduleBtn)
-    if (viewScheduleBtn && viewScheduleBtn.parentNode) {
-        const controlsContainer = viewScheduleBtn.parentNode; // This is the div holding year/month inputs and view button
-        if (controlsContainer && controlsContainer.parentNode) {
-            controlsContainer.parentNode.insertBefore(iconButtonsWrapper, controlsContainer);
+        // If titleLineWrapper doesn't exist, or if titleElement is not its child, create/reconfigure.
+        if (!titleLineWrapper || titleElement.parentNode !== titleLineWrapper) {
+            if (titleLineWrapper && titleElement.parentNode !== titleLineWrapper) {
+                // titleLineWrapper exists but is not parenting the title - this is an odd state.
+                // For robustness, remove the old one if it's not correctly placed.
+                if(titleLineWrapper.parentNode) titleLineWrapper.parentNode.removeChild(titleLineWrapper);
+            }
+
+            titleLineWrapper = document.createElement('div');
+            titleLineWrapper.id = 'share-title-line-wrapper';
+            titleLineWrapper.style.display = 'flex';
+            titleLineWrapper.style.justifyContent = 'space-between';
+            titleLineWrapper.style.alignItems = 'center';
+
+            // Handle margin: if h2 has mb-4 (typical for titles), titleLineWrapper takes it.
+            if (titleElement.classList.contains('mb-4') || getComputedStyle(titleElement).marginBottom !== '0px') {
+                 // Try to use existing margin if possible, otherwise default to 1rem
+                titleLineWrapper.style.marginBottom = getComputedStyle(titleElement).marginBottom || '1rem';
+                titleElement.style.marginBottom = '0'; // Remove margin from h2 itself
+            } else {
+                titleLineWrapper.style.marginBottom = '1rem'; // Default margin if h2 had none
+            }
+
+            if (titleElement.parentNode) {
+                titleElement.parentNode.insertBefore(titleLineWrapper, titleElement);
+            } else {
+                 // This case should ideally not happen if #share-view h2 exists.
+                 // As a fallback, append to share-view directly if titleElement has no parent.
+                 const shareViewContainer = document.getElementById('share-view');
+                 if (shareViewContainer) {
+                    shareViewContainer.insertBefore(titleLineWrapper, shareViewContainer.firstChild); // Or some other sensible place
+                 } else {
+                    document.body.insertBefore(titleLineWrapper, document.body.firstChild); // Absolute fallback
+                 }
+            }
+            titleLineWrapper.appendChild(titleElement);
         } else {
-            console.error("Controls container or its parent not found. Could not insert iconButtonsWrapper above controls.");
-            // Fallback: if the structure is not as expected, append to viewScheduleBtn's parent to ensure visibility
-            // This might be redundant if controlsContainer exists but its parent doesn't, but acts as a safety.
-            viewScheduleBtn.parentNode.appendChild(iconButtonsWrapper);
+            // If titleLineWrapper exists and correctly parents titleElement, ensure its styles are correct
+            titleLineWrapper.style.display = 'flex';
+            titleLineWrapper.style.justifyContent = 'space-between';
+            titleLineWrapper.style.alignItems = 'center';
+            // Ensure margin is appropriate, could re-evaluate based on h2 if needed
+             if (!titleLineWrapper.style.marginBottom && (titleElement.classList.contains('mb-4') || getComputedStyle(titleElement).marginBottom !== '0px')) {
+                titleLineWrapper.style.marginBottom = getComputedStyle(titleElement).marginBottom || '1rem';
+                titleElement.style.marginBottom = '0';
+            } else if (!titleLineWrapper.style.marginBottom) {
+                titleLineWrapper.style.marginBottom = '1rem';
+            }
         }
+        titleLineWrapper.appendChild(iconButtonsWrapper);
     } else {
-        console.error("viewScheduleBtn or its parent not found. Could not determine controlsContainer.");
-        // Fallback: As a last resort, try to append to a known container like the parent of downloadBtn,
-        // or the main share-view div if nothing else is found.
-        const shareViewMainContainer = document.getElementById('share-view'); // Assuming share-view is the main container
-        if (shareViewMainContainer) {
-            shareViewMainContainer.insertBefore(iconButtonsWrapper, shareViewMainContainer.firstChild); // Insert at the top of share-view
-        } else if (downloadBtn && downloadBtn.parentNode) {
-             downloadBtn.parentNode.insertBefore(iconButtonsWrapper, downloadBtn);
+        console.error("Title element (h2) not found in #share-view. Placing icon buttons before controls as fallback.");
+        // Fallback: Place iconButtonsWrapper above the controlsContainer (parent of viewScheduleBtn)
+        if (viewScheduleBtn && viewScheduleBtn.parentNode) {
+            const controlsContainer = viewScheduleBtn.parentNode;
+            if (controlsContainer && controlsContainer.parentNode && !iconButtonsWrapper.parentNode) { // Check not already appended
+                 controlsContainer.parentNode.insertBefore(iconButtonsWrapper, controlsContainer);
+                 // Re-apply block styles for this fallback position
+                 iconButtonsWrapper.style.width = '100%';
+                 iconButtonsWrapper.style.justifyContent = 'flex-end';
+                 iconButtonsWrapper.style.marginBottom = '0.75rem';
+            }
         }
     }
     // Note: The downloadBtn remains separate.
