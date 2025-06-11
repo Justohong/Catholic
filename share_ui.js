@@ -91,79 +91,72 @@ export async function initShareView() {
     // Append the inspect button to the new wrapper
     iconButtonsWrapper.appendChild(inspectShareScheduleBtn);
 
-    // Ensure iconButtonsWrapper is detached from any previous parent before re-inserting.
+    // Ensure iconButtonsWrapper is detached from any previous parent.
     if (iconButtonsWrapper.parentNode) {
         iconButtonsWrapper.parentNode.removeChild(iconButtonsWrapper);
     }
+     // Reset styles that might have been applied for other positions
+    iconButtonsWrapper.style.width = '';
+    iconButtonsWrapper.style.justifyContent = 'flex-start'; // Icons will be at the start of this small wrapper
+    iconButtonsWrapper.style.marginBottom = '';
 
-    // Logic to place iconButtonsWrapper on the title line
-    const titleElement = document.querySelector('#share-view h2');
+
+    const titleElement = document.querySelector('#share-view > h2.text-xl.font-semibold.text-sky-700');
+
     if (titleElement) {
-        let titleLineWrapper = document.getElementById('share-title-line-wrapper');
-
-        // If titleLineWrapper doesn't exist, or if titleElement is not its child, create/reconfigure.
-        if (!titleLineWrapper || titleElement.parentNode !== titleLineWrapper) {
-            if (titleLineWrapper && titleElement.parentNode !== titleLineWrapper) {
-                // titleLineWrapper exists but is not parenting the title - this is an odd state.
-                // For robustness, remove the old one if it's not correctly placed.
-                if(titleLineWrapper.parentNode) titleLineWrapper.parentNode.removeChild(titleLineWrapper);
+        // Clean up any old 'share-title-line-wrapper' that might exist from previous attempts.
+        const oldTitleLineWrapper = document.getElementById('share-title-line-wrapper');
+        if (oldTitleLineWrapper) {
+            // If titleElement is inside oldTitleLineWrapper, move it out before removing oldTitleLineWrapper.
+            if (oldTitleLineWrapper.contains(titleElement)) {
+                oldTitleLineWrapper.parentNode.insertBefore(titleElement, oldTitleLineWrapper);
             }
-
-            titleLineWrapper = document.createElement('div');
-            titleLineWrapper.id = 'share-title-line-wrapper';
-            titleLineWrapper.style.display = 'flex';
-            titleLineWrapper.style.justifyContent = 'space-between';
-            titleLineWrapper.style.alignItems = 'center';
-
-            // Handle margin: if h2 has mb-4 (typical for titles), titleLineWrapper takes it.
-            if (titleElement.classList.contains('mb-4') || getComputedStyle(titleElement).marginBottom !== '0px') {
-                 // Try to use existing margin if possible, otherwise default to 1rem
-                titleLineWrapper.style.marginBottom = getComputedStyle(titleElement).marginBottom || '1rem';
-                titleElement.style.marginBottom = '0'; // Remove margin from h2 itself
-            } else {
-                titleLineWrapper.style.marginBottom = '1rem'; // Default margin if h2 had none
+            // If iconButtonsWrapper (somehow) ended up in oldTitleLineWrapper, it's already removed above.
+            if (oldTitleLineWrapper.parentNode) {
+                 oldTitleLineWrapper.parentNode.removeChild(oldTitleLineWrapper);
             }
+        }
 
-            if (titleElement.parentNode) {
-                titleElement.parentNode.insertBefore(titleLineWrapper, titleElement);
-            } else {
-                 // This case should ideally not happen if #share-view h2 exists.
-                 // As a fallback, append to share-view directly if titleElement has no parent.
-                 const shareViewContainer = document.getElementById('share-view');
-                 if (shareViewContainer) {
-                    shareViewContainer.insertBefore(titleLineWrapper, shareViewContainer.firstChild); // Or some other sensible place
-                 } else {
-                    document.body.insertBefore(titleLineWrapper, document.body.firstChild); // Absolute fallback
-                 }
-            }
-            titleLineWrapper.appendChild(titleElement);
+        const newTitleLine = document.createElement('div');
+        // Not setting ID for newTitleLine as per current subtask (it was in previous, but not this one)
+        newTitleLine.style.display = 'flex';
+        newTitleLine.style.justifyContent = 'space-between';
+        newTitleLine.style.alignItems = 'center';
+        newTitleLine.style.marginBottom = '1rem'; // Equivalent to mb-4
+
+        // Original titleElement might have 'mb-4'. If newTitleLine handles margin, remove from titleElement.
+        if (titleElement.classList.contains('mb-4')) {
+            titleElement.classList.remove('mb-4');
         } else {
-            // If titleLineWrapper exists and correctly parents titleElement, ensure its styles are correct
-            titleLineWrapper.style.display = 'flex';
-            titleLineWrapper.style.justifyContent = 'space-between';
-            titleLineWrapper.style.alignItems = 'center';
-            // Ensure margin is appropriate, could re-evaluate based on h2 if needed
-             if (!titleLineWrapper.style.marginBottom && (titleElement.classList.contains('mb-4') || getComputedStyle(titleElement).marginBottom !== '0px')) {
-                titleLineWrapper.style.marginBottom = getComputedStyle(titleElement).marginBottom || '1rem';
-                titleElement.style.marginBottom = '0';
-            } else if (!titleLineWrapper.style.marginBottom) {
-                titleLineWrapper.style.marginBottom = '1rem';
+             // If titleElement itself didn't have mb-4, but its parent might have relied on it,
+             // ensure newTitleLine's margin is appropriate. '1rem' is a good default.
+             // Or, if getComputedStyle(titleElement).marginBottom was significant, could try to preserve it on newTitleLine.
+             // For now, '1rem' on newTitleLine is the standard.
+        }
+
+        if (titleElement.parentNode) {
+            titleElement.parentNode.insertBefore(newTitleLine, titleElement);
+        } else {
+            // This case should not be reached if querySelector found the element, as it implies it had a parent.
+            // Fallback if titleElement was somehow detached after being found.
+            const shareViewContainer = document.getElementById('share-view');
+            if (shareViewContainer) {
+                shareViewContainer.insertBefore(newTitleLine, shareViewContainer.firstChild);
+            } else {
+                // Absolute fallback, though unlikely to be effective if #share-view isn't there.
+                console.error("Share view container not found for newTitleLine insertion.");
+                document.body.appendChild(newTitleLine); // Avoid error, but layout is unknown
             }
         }
-        titleLineWrapper.appendChild(iconButtonsWrapper);
+        newTitleLine.appendChild(titleElement);
+        newTitleLine.appendChild(iconButtonsWrapper);
+
     } else {
-        console.error("Title element (h2) not found in #share-view. Placing icon buttons before controls as fallback.");
-        // Fallback: Place iconButtonsWrapper above the controlsContainer (parent of viewScheduleBtn)
-        if (viewScheduleBtn && viewScheduleBtn.parentNode) {
-            const controlsContainer = viewScheduleBtn.parentNode;
-            if (controlsContainer && controlsContainer.parentNode && !iconButtonsWrapper.parentNode) { // Check not already appended
-                 controlsContainer.parentNode.insertBefore(iconButtonsWrapper, controlsContainer);
-                 // Re-apply block styles for this fallback position
-                 iconButtonsWrapper.style.width = '100%';
-                 iconButtonsWrapper.style.justifyContent = 'flex-end';
-                 iconButtonsWrapper.style.marginBottom = '0.75rem';
-            }
-        }
+        console.error('Share view H2 title element (#shareView > h2.text-xl.font-semibold.text-sky-700) not found. Icon buttons not positioned on title line.');
+        // As per subtask, if titleElement not found, skip DOM manipulations for title line.
+        // iconButtonsWrapper will not be added to the DOM in this case by this specific logic block.
+        // A general fallback could be added here if desired, e.g., re-attaching it where it was in the step before last.
+        // For now, respecting the "skip the following DOM manipulations" instruction.
     }
     // Note: The downloadBtn remains separate.
 
