@@ -1,282 +1,215 @@
-import * as shareLogic from './share_logic.js';
+import * as logic from './schedule_generation_logic.js';
 import * as db from './db.js';
+import * as attendanceLogic from './attendance_logic.js';
+import * as inspectionLogic from './inspection_logic.js'; // 새로 추가
 
-let currentYear, currentMonth;
-let currentScheduleData = null;
-let allParticipants = [];
+let yearInput, monthInput, generateBtn, calendarDisplay, messageDiv, viewExistingScheduleBtn;
+// Inspection Modal related variables
+let inspectionModal, closeInspectionModalBtnTop, closeInspectionModalBtnBottom, inspectionModalMessageDiv, inspectionTableHeaderRow, inspectionTableBody;
+let inspectionModalListenersAttached = false; // Prevents duplicate listener attachment
 
-const daysOfWeekKorConcise = ['일', '월', '화', '수', '목', '금', '토'];
+const KOREAN_DAYS = ['일', '월', '화', '수', '목', '금', '토'];
 
-const yearInput = document.getElementById('share-year');
-const monthInput = document.getElementById('share-month');
-const viewScheduleBtn = document.getElementById('view-share-schedule-btn');
-const downloadBtn = document.getElementById('download-schedule-img-btn');
-const calendarContainer = document.getElementById('share-calendar-container');
-const messageDiv = document.getElementById('share-message');
+// CATEGORY_DISPLAY_NAMES is used by the old renderInspectionTable,
+// but the new one uses fixed headers. So, this can be removed if no other function uses it.
+// For now, keeping it to minimize unrelated changes.
+const CATEGORY_DISPLAY_NAMES = {
+    'elementary_6am': '초등6시',
+    'elementary_random': '초등랜덤',
+    'middle_7am': '중등7시',
+    'middle_random': '중등랜덤',
+    'elementary_random_fallback': '초등랜덤(F)',
+    'middle_random_fallback': '중등랜덤(F)'
+};
 
-const modal = document.getElementById('editAssignmentModal');
-const modalTitle = document.getElementById('editModalTitle');
-const modalCurrentAssignmentsDiv = document.getElementById('editModalCurrentAssignments');
-const modalParticipantSelect = document.getElementById('editModalParticipantSelect');
-const modalGenderFilter = document.getElementById('editModalGenderFilter');
-const modalCloseBtn = document.getElementById('editModalCloseBtn');
-const modalSaveBtn = document.getElementById('editModalSaveBtn');
-const modalMessageDiv = document.getElementById('editModalMessage');
+export function initScheduleGenerationView(viewElementId) {
+    const view = document.getElementById(viewElementId);
+    if (!view) return;
 
-let editContext = null;
+    yearInput = view.querySelector('#schedule-year');
+    monthInput = view.querySelector('#schedule-month');
+    generateBtn = view.querySelector('#generate-schedule-btn');
+    viewExistingScheduleBtn = view.querySelector('#view-existing-schedule-btn');
+    calendarDisplay = view.querySelector('#schedule-calendar-display');
+    messageDiv = view.querySelector('#schedule-generation-message');
 
+    if (!yearInput || !monthInput || !generateBtn || !calendarDisplay || !messageDiv || !viewExistingScheduleBtn) {
+        console.error("One or more elements not found in scheduleGenerationView");
+        return;
+    }
 
-export async function initShareView() {
-    const today = new Date();
-    currentYear = today.getFullYear();
-    currentMonth = today.getMonth() + 1;
+    const currentYear = new Date().getFullYear();
+    const currentMonth = new Date().getMonth() + 1;
 
     yearInput.value = currentYear;
-    monthInput.value = currentMonth;
+    monthInput.value = currentMonth.toString();
 
-    allParticipants = await db.getAllParticipants();
+    generateBtn.addEventListener('click', handleGenerateSchedule);
+    if (viewExistingScheduleBtn) {
+        viewExistingScheduleBtn.addEventListener('click', handleViewExistingSchedule);
+    }
 
-    viewScheduleBtn.addEventListener('click', async () => {
-        const year = parseInt(yearInput.value);
-        const month = parseInt(monthInput.value);
-        if (isNaN(year) || isNaN(month) || month < 1 || month > 12) {
-            messageDiv.textContent = '유효한 년도와 월을 입력해주세요.';
-            messageDiv.className = 'my-2 text-red-500';
-            return;
+    let resetBtn = view.querySelector('#reset-current-month-schedule-btn');
+    if (!resetBtn) {
+        resetBtn = document.createElement('button');
+        resetBtn.id = 'reset-current-month-schedule-btn';
+        resetBtn.addEventListener('click', handleResetCurrentMonthSchedule);
+    }
+    resetBtn.innerHTML = '<i data-lucide="trash-2" class="h-5 w-5"></i>';
+    resetBtn.title = '이번 달 일정 초기화';
+    resetBtn.className = 'btn btn-icon btn-warning p-2';
+
+    const sectionTitleH2 = view.querySelector('h2.text-xl.font-semibold');
+    if (sectionTitleH2) {
+        let titleWrapper = sectionTitleH2.parentNode;
+        if (titleWrapper.id !== 'schedule-title-container') {
+            const newTitleWrapper = document.createElement('div');
+            newTitleWrapper.id = 'schedule-title-container';
+            newTitleWrapper.className = 'flex justify-between items-center mb-4';
+            sectionTitleH2.parentNode.insertBefore(newTitleWrapper, sectionTitleH2);
+            newTitleWrapper.appendChild(sectionTitleH2);
+            sectionTitleH2.classList.remove('mb-4');
+            titleWrapper = newTitleWrapper;
         }
-        currentYear = year;
-        currentMonth = month;
-        await loadAndRenderCalendar(currentYear, currentMonth);
-    });
 
-    downloadBtn.addEventListener('click', handleDownload);
+        let actionButtonsWrapper = titleWrapper.querySelector('.action-buttons-wrapper');
+        if (!actionButtonsWrapper) {
+            actionButtonsWrapper = document.createElement('div');
+            actionButtonsWrapper.className = 'action-buttons-wrapper flex items-center space-x-2';
+            titleWrapper.appendChild(actionButtonsWrapper);
+        }
 
-    modalCloseBtn.addEventListener('click', closeEditModal);
-    modalSaveBtn.addEventListener('click', handleSaveAssignment);
-    modalGenderFilter.addEventListener('change', populateParticipantSelect);
+        // Ensure Excel download button is removed (as per previous subtask)
+        let downloadExcelBtn = view.querySelector('#download-schedule-excel-btn');
+        if (downloadExcelBtn && downloadExcelBtn.parentNode === actionButtonsWrapper) {
+            actionButtonsWrapper.removeChild(downloadExcelBtn);
+        }
 
 
-    await loadAndRenderCalendar(currentYear, currentMonth);
+        let inspectScheduleBtn = view.querySelector('#inspect-schedule-btn');
+        if (!inspectScheduleBtn) {
+            inspectScheduleBtn = document.createElement('button');
+            inspectScheduleBtn.id = 'inspect-schedule-btn';
+        }
+        inspectScheduleBtn.innerHTML = '<i data-lucide="clipboard-list" class="h-5 w-5"></i>';
+        inspectScheduleBtn.title = '월별 배정 현황 점검';
+        inspectScheduleBtn.className = 'btn btn-icon text-slate-700 hover:text-sky-600 hover:bg-slate-100 p-2';
+
+        if (inspectScheduleBtn.parentNode !== actionButtonsWrapper || actionButtonsWrapper.firstChild !== inspectScheduleBtn) {
+             if(inspectScheduleBtn.parentNode === actionButtonsWrapper) actionButtonsWrapper.removeChild(inspectScheduleBtn);
+             actionButtonsWrapper.insertBefore(inspectScheduleBtn, actionButtonsWrapper.firstChild);
+        }
+
+        if (resetBtn.parentNode !== actionButtonsWrapper) {
+            actionButtonsWrapper.appendChild(resetBtn);
+        } else {
+            actionButtonsWrapper.appendChild(resetBtn); // Ensure it's last if already there
+        }
+
+    } else {
+        console.warn("Section title H2 not found. Appending action buttons to generateBtn's parent as a fallback.");
+        const fallbackContainer = generateBtn.parentNode;
+        if (fallbackContainer) {
+            // Ensure Excel button is removed from fallback too
+            let downloadExcelBtnFallback = view.querySelector('#download-schedule-excel-btn');
+            if (downloadExcelBtnFallback && downloadExcelBtnFallback.parentNode === fallbackContainer) {
+                 fallbackContainer.removeChild(downloadExcelBtnFallback);
+            }
+            resetBtn.className = 'btn btn-icon btn-warning p-2 ml-2';
+            if (resetBtn.parentNode !== fallbackContainer) fallbackContainer.appendChild(resetBtn);
+        } else {
+            console.error("Fallback container (generateBtn.parentNode) not found.");
+        }
+    }
+
+    if (!inspectionModalListenersAttached) {
+        inspectionModal = document.getElementById('scheduleInspectionModal');
+        closeInspectionModalBtnTop = document.getElementById('closeInspectionModalBtn');
+        closeInspectionModalBtnBottom = document.getElementById('closeInspectionModalBtnBottom');
+        inspectionModalMessageDiv = document.getElementById('inspectionModalMessage');
+        inspectionTableHeaderRow = document.getElementById('inspection-table-header-row');
+        inspectionTableBody = document.getElementById('inspection-table-body');
+
+        if (inspectionModal) {
+            if (closeInspectionModalBtnTop) closeInspectionModalBtnTop.addEventListener('click', closeScheduleInspectionModal);
+            if (closeInspectionModalBtnBottom) closeInspectionModalBtnBottom.addEventListener('click', closeScheduleInspectionModal);
+            inspectionModal.addEventListener('click', (event) => {
+                if (event.target === inspectionModal) closeScheduleInspectionModal();
+            });
+        }
+        inspectionModalListenersAttached = true;
+    }
+
+    let currentInspectBtn = view.querySelector('#inspect-schedule-btn');
+    if (currentInspectBtn) {
+        currentInspectBtn.removeEventListener('click', openScheduleInspectionModal);
+        currentInspectBtn.addEventListener('click', openScheduleInspectionModal);
+    }
+
     lucide.createIcons();
+    loadInitialScheduleForCurrentDate();
 }
 
-async function loadAndRenderCalendar(year, month) {
-    messageDiv.textContent = '일정을 불러오는 중...';
-    messageDiv.className = 'my-2 text-slate-600';
+async function handleViewExistingSchedule() {
+    const year = parseInt(yearInput.value);
+    const month = parseInt(monthInput.value);
+    if (!year || year < 2000 || year > 2100) { displayMessage('조회할 유효한 년도를 입력하세요 (2000-2100).', 'error'); return; }
+    if (!month || month < 1 || month > 12) { displayMessage('조회할 유효한 월을 선택하세요.', 'error'); return; }
+    displayMessage('기존 일정을 불러오는 중...', 'info');
+    calendarDisplay.innerHTML = '';
     try {
-        currentScheduleData = await shareLogic.getScheduleForMonth(year, month);
-        if (!currentScheduleData || !currentScheduleData.data || currentScheduleData.data.length === 0) {
-            calendarContainer.innerHTML = '';
-            messageDiv.textContent = '해당 월의 생성된 일정이 없습니다.';
-            messageDiv.className = 'my-2 text-orange-500';
-            currentScheduleData = null;
+        const scheduleObject = await db.getSchedule(year, month);
+        if (scheduleObject && scheduleObject.data && scheduleObject.data.length > 0) {
+            renderCalendar(year, month, scheduleObject.data);
+            displayMessage(`기존 ${year}년 ${month}월 일정을 불러왔습니다.`, 'info');
         } else {
-            renderShareCalendar(year, month, currentScheduleData.data, allParticipants);
-            messageDiv.textContent = `${year}년 ${month}월 일정`;
-            messageDiv.className = 'my-2 text-green-600';
+            renderCalendar(year, month, null);
+            displayMessage('저장된 기존 일정이 없습니다. 새로 생성할 수 있습니다.', 'info');
         }
     } catch (error) {
-        console.error('Error loading or rendering schedule:', error);
-        messageDiv.textContent = '일정 로딩 중 오류가 발생했습니다.';
-        messageDiv.className = 'my-2 text-red-500';
-        calendarContainer.innerHTML = '<p class="text-red-500">일정 로딩 중 오류가 발생했습니다. 콘솔을 확인해주세요.</p>';
-        currentScheduleData = null;
+        console.error("Failed to load existing schedule:", error);
+        renderCalendar(year, month, null);
+        displayMessage('기존 일정 로드 중 오류 발생.', 'error');
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
+}
+
+async function openScheduleInspectionModal() {
+    const year = parseInt(yearInput.value);
+    const month = parseInt(monthInput.value);
+    if (!year || !month) { alert("점검할 일정을 위해 년도와 월을 먼저 선택하거나 생성해주세요."); return; }
+    if (!inspectionModal || !inspectionModalMessageDiv || !inspectionTableBody || !inspectionTableHeaderRow) {
+        console.error("Inspection modal elements not found."); alert("점검 모달의 구성 요소를 찾을 수 없습니다."); return;
+    }
+    inspectionModalMessageDiv.textContent = '배정 현황 데이터 분석 중...';
+    inspectionModalMessageDiv.className = 'my-2 text-sm text-blue-600';
+    inspectionTableBody.innerHTML = ''; inspectionTableHeaderRow.innerHTML = '';
+    inspectionModal.classList.add('active');
+    try {
+        const result = await inspectionLogic.analyzeScheduleForInspection(year, month);
+        if (result.error) {
+            inspectionModalMessageDiv.textContent = result.error;
+            inspectionModalMessageDiv.className = 'my-2 text-sm text-red-600'; return;
+        }
+        if (result.message) {
+             inspectionModalMessageDiv.textContent = result.message;
+             inspectionModalMessageDiv.className = 'my-2 text-sm text-slate-600';
+        } else {
+             inspectionModalMessageDiv.textContent = '';
+        }
+        renderInspectionTable(result.analysis, result.uniqueCategoryKeys);
+        if (result.analysis && result.analysis.length > 0 && !result.message && !result.error) {
+            inspectionModalMessageDiv.textContent = `${year}년 ${month}월 배정 현황 (총 배정 많은 순). 붉은색 숫자는 결석자 우선 배정 횟수입니다.`;
+            inspectionModalMessageDiv.className = 'my-2 text-sm text-slate-600';
+        }
+    } catch (error) {
+        console.error("Error during schedule inspection analysis:", error);
+        inspectionModalMessageDiv.textContent = `분석 중 오류 발생: ${error.message}`;
+        inspectionModalMessageDiv.className = 'my-2 text-sm text-red-600';
     }
 }
 
-function renderShareCalendar(year, month, scheduleDays, participantsList) {
-    const participantsMap = new Map(participantsList.map(p => [p.id, p]));
-    calendarContainer.innerHTML = '';
-
-    const firstDayOfMonth = new Date(year, month - 1, 1);
-    const lastDayOfMonth = new Date(year, month, 0);
-    const firstDayOfWeek = firstDayOfMonth.getDay();
-    const totalDaysInMonth = lastDayOfMonth.getDate();
-
-    const table = document.createElement('table');
-    table.style.width = '100%';
-    table.style.borderCollapse = 'collapse';
-    table.style.tableLayout = 'fixed';
-    table.style.border = '1px solid #cbd5e1'; // Equivalent to border-slate-300
-
-    const header = table.createTHead();
-    const headerRow = header.insertRow();
-    headerRow.style.backgroundColor = '#f8fafc'; // bg-slate-50
-
-    daysOfWeekKorConcise.forEach(dayName => {
-        const th = document.createElement('th');
-        th.style.padding = '0.5rem'; // p-2
-        th.style.border = '1px solid #cbd5e1'; // border-slate-300
-        th.style.color = '#64748b'; // text-slate-500
-        th.style.fontWeight = '600'; // font-semibold
-        th.style.fontSize = '0.875rem'; // text-sm
-        th.style.textAlign = 'center';
-        th.style.position = 'sticky';
-        th.style.top = '0';
-        th.style.zIndex = '10';
-        th.style.backgroundColor = '#f1f5f9'; // bg-slate-100
-        th.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)'; // shadow-sm
-        th.style.width = `${100 / 7}%`;
-        th.textContent = dayName;
-        headerRow.appendChild(th);
-    });
-
-    const tbody = table.createTBody();
-    let date = 1;
-    for (let i = 0; i < 6; i++) {
-        const row = tbody.insertRow();
-        for (let j = 0; j < 7; j++) {
-            const cell = row.insertCell();
-            // Base cell styles
-            cell.style.border = '1px solid #e2e8f0'; // slate-200
-            cell.style.padding = '0.375rem'; // p-1.5 (6px)
-            cell.style.verticalAlign = 'top';
-            cell.style.height = '10rem'; // h-40 (160px)
-            cell.style.fontSize = '0.75rem'; // text-xs (12px)
-            cell.style.position = 'relative';
-            cell.style.boxSizing = 'border-box';
-            cell.innerHTML = ''; // Clear cell content
-
-            if (i === 0 && j < firstDayOfWeek) {
-                cell.style.backgroundColor = '#f8fafc'; /* slate-50 */
-            } else if (date > totalDaysInMonth) {
-                cell.style.backgroundColor = '#f8fafc'; /* slate-50 */
-            } else {
-                // Default weekday background
-                cell.style.backgroundColor = '#ffffff'; // White
-                // Apply weekend background if applicable
-                if (j === 0 || j === 6) { // Weekends (Sunday or Saturday)
-                    cell.style.backgroundColor = '#fffbeb'; /* amber-50 */
-                }
-
-                const dayNumberDiv = document.createElement('div');
-                dayNumberDiv.style.textAlign = 'right';
-                dayNumberDiv.style.fontSize = '0.875rem'; // text-sm
-                dayNumberDiv.style.fontWeight = '600'; // font-semibold
-                dayNumberDiv.style.color = '#64748b'; // slate-500
-                dayNumberDiv.style.marginBottom = '0.25rem'; // mb-1
-                dayNumberDiv.style.paddingRight = '0.25rem';
-                dayNumberDiv.style.paddingLeft = '0.25rem';
-                dayNumberDiv.textContent = date;
-
-                const today = new Date();
-                const isCurrentDayToday = (year === today.getFullYear() && month - 1 === today.getMonth() && date === today.getDate());
-
-                cell.appendChild(dayNumberDiv);
-
-                if (isCurrentDayToday) {
-                    // dayNumberDiv.style.color = '#0284c7'; // sky-600
-                    // dayNumberDiv.style.backgroundColor = '#e0f2fe'; // sky-100
-                    // dayNumberDiv.style.borderRadius = '9999px'; // rounded-full
-                    // dayNumberDiv.style.width = '1.5rem'; // w-6
-                    // dayNumberDiv.style.height = '1.5rem'; // h-6
-                    // dayNumberDiv.style.display = 'flex';
-                    // dayNumberDiv.style.alignItems = 'center';
-                    // dayNumberDiv.style.justifyContent = 'center';
-                    // dayNumberDiv.style.marginLeft = 'auto';
-                    // dayNumberDiv.style.fontWeight = '700'; // font-bold
-                    // dayNumberDiv.style.lineHeight = '1'; // leading-none
-                    // dayNumberDiv.style.padding = '0px'; // Reset padding
-                    // dayNumberDiv.classList.add('today-number-highlight'); // 식별용 클래스 추가
-
-                    // cell.style.borderColor = '#7dd3fc'; // sky-300
-                    // cell.style.borderWidth = '2px';
-                    // cell.style.borderStyle = 'solid';
-                    // cell.classList.add('today-cell-highlight'); // 식별용 클래스 추가
-                }
-
-                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
-                const daySchedule = scheduleDays.find(d => d.date === dateStr);
-
-                if (daySchedule && daySchedule.timeSlots) {
-                    daySchedule.timeSlots.forEach((slot, slotIndex) => {
-                        const slotDiv = document.createElement('div');
-                        slotDiv.dataset.slotType = slot.type;
-                        slotDiv.setAttribute('data-debug', slot.type + '-APPLIED');
-
-                        slotDiv.style.padding = '0.375rem';
-                        slotDiv.style.marginTop = '0.25rem';
-                        slotDiv.style.marginBottom = '0.25rem';
-                        slotDiv.style.borderRadius = '0.5rem';
-                        slotDiv.style.textAlign = 'left';
-                        slotDiv.style.fontSize = '11px';
-                        slotDiv.style.lineHeight = '1.375';
-                        slotDiv.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
-                        slotDiv.style.border = '1px solid #d1d5db';
-                        slotDiv.style.backgroundColor = '#f3f4f6';
-                        slotDiv.style.color = '#374151';
-                        slotDiv.style.boxSizing = 'border-box';
-                        slotDiv.style.width = '100%';
-                        slotDiv.style.overflow = 'hidden';
-                        slotDiv.style.display = 'block';
-                        slotDiv.style.position = 'relative';
-
-                        const timeSpan = document.createElement('span');
-                        timeSpan.style.fontWeight = '700';
-                        timeSpan.style.display = 'block';
-                        timeSpan.style.color = '#475569';
-                        timeSpan.style.marginBottom = '0.125rem';
-                        timeSpan.style.fontSize = '10px';
-                        timeSpan.style.textTransform = 'uppercase';
-                        timeSpan.style.letterSpacing = '0.05em';
-                        timeSpan.textContent = slot.time;
-                        slotDiv.appendChild(timeSpan);
-
-                        if (slot.assigned && slot.assigned.length > 0) {
-                            slot.assigned.forEach((participantId, index) => {
-                                const participant = participantsMap.get(participantId);
-                                const nameSpan = document.createElement('span');
-                                nameSpan.style.display = 'block';
-                                nameSpan.style.cursor = 'pointer';
-                                nameSpan.style.fontSize = '12px';
-                                nameSpan.style.color = 'inherit';
-
-                                if (participant) {
-                                    nameSpan.textContent = participant.name;
-                                    // Text color will be inherited from slotDiv.style.color
-                                    if (slot.isFixedStatus && slot.isFixedStatus[index] === true) {
-                                        nameSpan.style.fontWeight = '800';
-                                    }
-                                } else {
-                                    nameSpan.textContent = `ID:${participantId}`;
-                                    nameSpan.style.color = '#64748b';
-                                    nameSpan.style.fontStyle = 'italic';
-                                }
-
-                                nameSpan.addEventListener('click', (e) => {
-                                    e.stopPropagation();
-                                    openEditModal(dateStr, slot.time, slot.type, participantId, slot.assigned, participantsMap);
-                                });
-                                slotDiv.appendChild(nameSpan);
-                            });
-                        } else {
-                            const noAssignmentSpan = document.createElement('span');
-                            noAssignmentSpan.style.color = '#94a3b8';
-                            noAssignmentSpan.style.fontStyle = 'italic';
-                            noAssignmentSpan.style.fontSize = '10px';
-                            noAssignmentSpan.style.paddingTop = '0.5rem';
-                            noAssignmentSpan.style.paddingBottom = '0.5rem';
-                            noAssignmentSpan.style.textAlign = 'center';
-                            noAssignmentSpan.style.display = 'block';
-                            noAssignmentSpan.textContent = '미배정';
-                            slotDiv.appendChild(noAssignmentSpan);
-                        }
-                        cell.appendChild(slotDiv);
-                    });
-                }
-                date++;
-            }
-        }
-        if (date > totalDaysInMonth && i < 5) {
-            // This condition seems to be for breaking early if remaining rows are empty,
-            // but it's currently an empty block. It might be okay to leave as is or remove.
-            // For now, preserving its structure.
-        }
-    }
-    calendarContainer.appendChild(table);
-}
-
-// New renderInspectionTable function
+// --- START OF NEW/REPLACED renderInspectionTable FUNCTION ---
 function renderInspectionTable(analysisData, uniqueCategoryKeys) { // uniqueCategoryKeys is now ['새벽', '1차랜덤', '2차랜덤']
     if (!inspectionModal || !inspectionModalMessageDiv || !inspectionTableBody || !inspectionTableHeaderRow) {
         console.error("Inspection modal table elements not found for rendering.");
@@ -355,229 +288,215 @@ function renderInspectionTable(analysisData, uniqueCategoryKeys) { // uniqueCate
         lucide.createIcons();
     }
 }
-// End of new renderInspectionTable function
+// --- END OF NEW renderInspectionTable FUNCTION ---
 
-async function handleDownload() {
-    if (!currentScheduleData) {
-        messageDiv.textContent = '다운로드할 일정이 없습니다. 먼저 일정을 조회해주세요.';
-        messageDiv.className = 'my-2 text-red-500';
-        return;
+function closeScheduleInspectionModal() {
+    if (inspectionModal) {
+        inspectionModal.classList.remove('active');
     }
-    messageDiv.textContent = '이미지 생성 중...';
-    messageDiv.className = 'my-2 text-slate-600';
+}
 
+async function loadInitialScheduleForCurrentDate() {
+    const year = parseInt(yearInput.value);
+    const month = parseInt(monthInput.value);
+    if (year && month) {
+        try {
+            const scheduleObject = await db.getSchedule(year, month);
+            if (scheduleObject && scheduleObject.data) {
+                renderCalendar(year, month, scheduleObject.data);
+                displayMessage('기존 생성된 일정을 불러왔습니다.', 'info');
+            } else {
+                renderCalendar(year, month, null);
+                displayMessage('선택한 년/월의 저장된 일정이 없거나 비어있습니다. 새로 생성하세요.', 'info');
+            }
+        } catch (error) {
+            console.error("Failed to load initial schedule:", error);
+            renderCalendar(year, month, null);
+            displayMessage('일정 로드 중 오류 발생.', 'error');
+        }
+    }
+}
+
+async function handleDownloadScheduleExcel() {
+    const year = parseInt(yearInput.value);
+    const month = parseInt(monthInput.value);
+    if (!year || !month) { displayMessage('엑셀 다운로드를 위해 년도와 월을 선택해주세요.', 'error'); return; }
+    displayMessage('엑셀 파일 생성 중...', 'info');
     try {
-        const calendarElement = document.getElementById('share-calendar-container');
-
-        const originalCanvas = await html2canvas(calendarElement, {
-            scale: 2,
-            useCORS: true,
-            backgroundColor: '#ffffff',
-            logging: false,
-            onclone: (documentClone) => {
-                documentClone.body.style.width = 'auto';
-                documentClone.body.style.height = 'auto';
-                documentClone.body.style.overflow = 'visible';
-                documentClone.body.style.margin = '0';
-                documentClone.body.style.padding = '0';
-
-                const clonedCalendarContainer = documentClone.getElementById('share-calendar-container');
-                if (clonedCalendarContainer) {
-                    clonedCalendarContainer.style.position = 'absolute';
-                    clonedCalendarContainer.style.left = '0px';
-                    clonedCalendarContainer.style.top = '0px';
-                    clonedCalendarContainer.style.width = 'auto';
-                    clonedCalendarContainer.style.height = 'auto';
-                    clonedCalendarContainer.style.overflow = 'visible';
-                    clonedCalendarContainer.style.margin = '0';
-                    clonedCalendarContainer.style.padding = '0';
-                }
-
-                const todayCellClones = documentClone.querySelectorAll('.today-cell-highlight');
-                todayCellClones.forEach(cellClone => {
-                    cellClone.style.borderColor = '#e2e8f0';
-                    cellClone.style.borderWidth = '1px';
-                });
-
-                const todayNumberClones = documentClone.querySelectorAll('.today-number-highlight');
-                todayNumberClones.forEach(numDivClone => {
-                    numDivClone.style.color = '#64748b';
-                    numDivClone.style.backgroundColor = 'transparent';
-                    numDivClone.style.borderRadius = '';
-                    numDivClone.style.width = 'auto';
-                    numDivClone.style.height = 'auto';
-                    numDivClone.style.display = 'block';
-                    numDivClone.style.textAlign = 'right';
-                    numDivClone.style.marginLeft = '';
-                    numDivClone.style.fontWeight = '600';
-                    numDivClone.style.lineHeight = '';
-                    numDivClone.style.padding = '';
+        const scheduleObject = await db.getSchedule(year, month);
+        if (!scheduleObject || !scheduleObject.data || scheduleObject.data.length === 0) {
+            displayMessage('다운로드할 생성된 일정이 없습니다.', 'info'); return;
+        }
+        const participants = await db.getAllParticipants();
+        const participantsMap = new Map();
+        participants.forEach(p => participantsMap.set(p.id, p.name));
+        const excelData = [];
+        excelData.push(['날짜', '요일', '시간', '구분', '배정인원1', '배정인원2', '고정여부1', '고정여부2']);
+        scheduleObject.data.forEach(daySchedule => {
+            const dateObj = new Date(daySchedule.date);
+            const dayOfWeekExcel = KOREAN_DAYS[dateObj.getDay()];
+            if (daySchedule.timeSlots && daySchedule.timeSlots.length > 0) {
+                daySchedule.timeSlots.forEach(slot => {
+                    const assignedName1 = slot.assigned && slot.assigned[0] ? (participantsMap.get(slot.assigned[0]) || `ID:${slot.assigned[0]}`) : '';
+                    const assignedName2 = slot.assigned && slot.assigned[1] ? (participantsMap.get(slot.assigned[1]) || `ID:${slot.assigned[1]}`) : '';
+                    const isFixed1 = slot.isFixedStatus && Array.isArray(slot.isFixedStatus) && slot.isFixedStatus[0] ? '고정' : '';
+                    const isFixed2 = slot.isFixedStatus && Array.isArray(slot.isFixedStatus) && slot.isFixedStatus[1] ? '고정' : '';
+                    excelData.push([
+                        daySchedule.date, dayOfWeekExcel, slot.time,
+                        slot.type === 'elementary' ? '초등' : (slot.type === 'middle' ? '중등' : slot.type),
+                        assignedName1, assignedName2, isFixed1, isFixed2
+                    ]);
                 });
             }
         });
-
-        const newCanvas = document.createElement('canvas');
-        const titleBarHeight = Math.max(60, originalCanvas.width * 0.05);
-        newCanvas.width = originalCanvas.width;
-        newCanvas.height = originalCanvas.height + titleBarHeight;
-
-        const ctx = newCanvas.getContext('2d');
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, newCanvas.width, newCanvas.height);
-        ctx.drawImage(originalCanvas, 0, titleBarHeight);
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, newCanvas.width, titleBarHeight);
-
-        const titleText = `${currentYear}년 ${currentMonth}월`;
-        const fontSize = Math.max(20, Math.min(originalCanvas.width * 0.03, 32));
-        ctx.font = `bold ${fontSize}px sans-serif`;
-        ctx.fillStyle = '#334155';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        const textX = newCanvas.width / 2;
-        const textY = titleBarHeight / 2;
-        ctx.fillText(titleText, textX, textY);
-
-        const image = newCanvas.toDataURL('image/png');
-        const link = document.createElement('a');
-        link.download = `${currentYear}_${String(currentMonth).padStart(2, '0')}_일정.png`;
-        link.href = image;
-        link.click();
-        messageDiv.textContent = '이미지 다운로드 성공!';
-        messageDiv.className = 'my-2 text-green-600';
-    } catch (err) {
-        console.error('Failed to download image:', err);
-        messageDiv.textContent = '이미지 다운로드 실패.';
-        messageDiv.className = 'my-2 text-red-500';
-    }
-}
-
-function openEditModal(date, time, slotType, participantIdToEdit, originalAssignments, participantsMap) {
-    editContext = { date, time, slotType, participantIdToEdit, originalAssignments: [...originalAssignments] };
-    modalMessageDiv.textContent = '';
-    const participantToEditText = participantsMap.get(participantIdToEdit)?.name || `ID:${participantIdToEdit}`;
-    modalTitle.textContent = `${date} ${time} (${participantToEditText}) 일정 수정`;
-
-    modalCurrentAssignmentsDiv.innerHTML = '';
-    const currentAssignmentsLabel = document.createElement('p');
-    currentAssignmentsLabel.className = 'text-sm text-slate-600 mb-1 font-medium';
-    currentAssignmentsLabel.textContent = '현재 배정:';
-    modalCurrentAssignmentsDiv.appendChild(currentAssignmentsLabel);
-
-    originalAssignments.forEach(pid => {
-        const pData = participantsMap.get(pid);
-        const pName = pData?.name || `ID:${pid}`;
-        const pType = pData?.type;
-        const pDiv = document.createElement('div');
-        pDiv.className = 'flex justify-between items-center bg-slate-100 p-2 rounded mb-1';
-
-        const nameTypeSpan = document.createElement('span');
-        nameTypeSpan.textContent = pName;
-
-        if (pType === '초등') {
-            nameTypeSpan.classList.add('text-sky-700');
-        } else if (pType === '중등') {
-            nameTypeSpan.classList.add('text-emerald-700');
-        } else {
-            nameTypeSpan.classList.add('text-slate-700');
-        }
-
-        if ((time === '06:00' || time === '07:00') && currentScheduleData) {
-            const dayData = currentScheduleData.data.find(d => d.date === date);
-            const slotData = dayData?.timeSlots.find(s => s.time === time);
-            if (slotData?.fixed) {
-                 nameTypeSpan.classList.add('font-extrabold');
-            }
-        }
-        pDiv.appendChild(nameTypeSpan);
-
-        if (pid === participantIdToEdit) {
-            const unassignBtn = document.createElement('button');
-            unassignBtn.className = 'btn btn-danger btn-sm py-1 px-2 text-xs';
-            unassignBtn.innerHTML = '<i data-lucide="user-minus" class="h-3 w-3 mr-1"></i>배정 해제';
-            unassignBtn.onclick = async () => {
-                if (confirm(`${pName}님을 이 시간에서 배정 해제하시겠습니까?`)) {
-                    try {
-                        await shareLogic.unassignParticipant(currentYear, currentMonth, date, time, participantIdToEdit);
-                        closeEditModal();
-                        await loadAndRenderCalendar(currentYear, currentMonth);
-                         messageDiv.textContent = `${pName}님 배정 해제 완료.`;
-                         messageDiv.className = 'my-2 text-green-600';
-                    } catch (error) {
-                        console.error("Failed to unassign participant:", error);
-                        modalMessageDiv.textContent = `해제 실패: ${error.message}`;
-                    }
-                }
-            };
-            pDiv.appendChild(unassignBtn);
-        }
-        modalCurrentAssignmentsDiv.appendChild(pDiv);
-    });
-    lucide.createIcons();
-
-
-    modalGenderFilter.value = 'all';
-    populateParticipantSelect();
-    modal.classList.add('active');
-}
-
-async function populateParticipantSelect() {
-    if (!editContext) return;
-    const { date, slotType, originalAssignments, participantIdToEdit } = editContext;
-    const genderFilter = modalGenderFilter.value;
-    
-    const availableParticipants = await shareLogic.getAvailableParticipantsForSlot(
-        date,
-        slotType,
-        originalAssignments.filter(id => id !== participantIdToEdit),
-        genderFilter,
-        allParticipants,
-        currentScheduleData.data
-    );
-
-    modalParticipantSelect.innerHTML = '<option value="">변경할 인원 선택...</option>';
-    availableParticipants.forEach(p => {
-        const option = document.createElement('option');
-        option.value = p.id;
-        let typeColorClass = '';
-        if (p.type === '초등') typeColorClass = 'text-sky-700';
-        else if (p.type === '중등') typeColorClass = 'text-emerald-700';
-
-        option.innerHTML = `${p.name} (<span class="${typeColorClass}">${p.type}</span>, ${p.gender})`;
-        modalParticipantSelect.appendChild(option);
-    });
-}
-
-function closeEditModal() {
-    modal.classList.remove('active');
-    editContext = null;
-}
-
-async function handleSaveAssignment() {
-    if (!editContext) return;
-    modalMessageDiv.textContent = '';
-
-    const newParticipantId = parseInt(modalParticipantSelect.value);
-    if (!newParticipantId) {
-        modalMessageDiv.textContent = '변경할 인원을 선택해주세요.';
-        return;
-    }
-
-    const { date, time, participantIdToEdit, originalAssignments } = editContext;
-
-    if (originalAssignments.includes(newParticipantId) && newParticipantId !== participantIdToEdit) {
-        modalMessageDiv.textContent = '선택한 인원은 이미 이 시간대에 다른 역할로 배정되어 있습니다.';
-        return;
-    }
-
-    try {
-        await shareLogic.replaceParticipant(currentYear, currentMonth, date, time, participantIdToEdit, newParticipantId);
-        closeEditModal();
-        await loadAndRenderCalendar(currentYear, currentMonth);
-        messageDiv.textContent = '일정 변경 저장 완료.';
-        messageDiv.className = 'my-2 text-green-600';
+        if (excelData.length <= 1) { displayMessage('엑셀로 내보낼 배정 내용이 없습니다.', 'info'); return; }
+        const worksheet = XLSX.utils.aoa_to_sheet(excelData);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, `${year}년 ${month}월`);
+        XLSX.writeFile(workbook, `일정_${year}년_${String(month).padStart(2, '0')}월.xlsx`);
+        displayMessage('엑셀 파일이 성공적으로 다운로드되었습니다.', 'success');
     } catch (error) {
-        console.error("Failed to save assignment:", error);
-        modalMessageDiv.textContent = `저장 실패: ${error.message}`;
+        console.error('Excel download failed:', error);
+        displayMessage(`엑셀 다운로드 실패: ${error.message}`, 'error');
+    }
+}
+
+async function handleGenerateSchedule() {
+    const year = parseInt(yearInput.value);
+    const month = parseInt(monthInput.value);
+    if (!year || year < 2000 || year > 2100) { displayMessage('유효한 년도를 입력하세요 (2000-2100).', 'error'); return; }
+    if (!month || month < 1 || month > 12) { displayMessage('유효한 월을 선택하세요.', 'error'); return; }
+    generateBtn.disabled = true;
+    generateBtn.innerHTML = '<i data-lucide="loader-2" class="animate-spin mr-2 h-4 w-4"></i> 생성 중...';
+    lucide.createIcons();
+    displayMessage('일정을 생성 중입니다...', 'info');
+    try {
+        const resultObject = await logic.generateSchedule(year, month);
+        renderCalendar(year, month, resultObject.schedule);
+        displayMessage('일정이 성공적으로 생성되었습니다.', 'success');
+    } catch (error) {
+        console.error("Schedule generation failed:", error);
+        displayMessage(`일정 생성 실패: ${error.message}`, 'error');
+        renderCalendar(year, month, null);
+    } finally {
+        generateBtn.disabled = false;
+        generateBtn.innerHTML = '<i data-lucide="calendar-plus" class="mr-2 h-4 w-4"></i>일정 생성';
+        lucide.createIcons();
+    }
+}
+
+function renderCalendar(year, month, scheduleData) {
+    calendarDisplay.innerHTML = '';
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const firstDayOfMonth = new Date(year, month - 1, 1).getDay();
+    const table = document.createElement('table');
+    table.className = 'divide-y divide-slate-200 border border-slate-200';
+    const thead = document.createElement('thead');
+    thead.className = 'bg-slate-50';
+    const headerRow = document.createElement('tr');
+    KOREAN_DAYS.forEach(day => {
+        const th = document.createElement('th');
+        th.className = 'px-2 py-1 text-center text-xs font-medium text-slate-500 uppercase tracking-wider';
+        th.style.width = `${100 / 7}%`;
+        th.textContent = day;
+        headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+    const tbody = document.createElement('tbody');
+    tbody.className = 'bg-white divide-y divide-slate-200';
+    let date = 1;
+    for (let i = 0; i < 6; i++) {
+        const weekRow = document.createElement('tr');
+        let cellsInWeek = 0;
+        for (let j = 0; j < 7; j++) {
+            const cell = document.createElement('td');
+            cell.className = 'px-2 py-2 align-top h-24 sm:h-32 text-xs';
+            if (i === 0 && j < firstDayOfMonth) {
+                cell.classList.add('other-month');
+            } else if (date > daysInMonth) {
+                cell.classList.add('other-month');
+            } else {
+                if (j === 0 || j === 6) cell.classList.add('weekend');
+                const dayNumber = document.createElement('div');
+                dayNumber.className = 'calendar-day-number font-semibold text-slate-700';
+                dayNumber.textContent = date;
+                cell.appendChild(dayNumber);
+                const assignmentsForDate = scheduleData?.find(d => d.date === `${year}-${String(month).padStart(2, '0')}-${String(date).padStart(2, '0')}`);
+                if (assignmentsForDate && assignmentsForDate.timeSlots) {
+                    assignmentsForDate.timeSlots.forEach(slot => {
+                        const entryDiv = document.createElement('div');
+                        entryDiv.className = 'schedule-entry p-1 my-0.5 rounded bg-sky-100 border border-sky-200 text-sky-800';
+                        const timeStrong = document.createElement('strong');
+                        timeStrong.textContent = `${slot.time} (${slot.type === 'elementary' ? '초' : '중'}): `;
+                        entryDiv.appendChild(timeStrong);
+                        slot.assigned.forEach((participantId, index) => {
+                            const nameSpan = document.createElement('span');
+                            nameSpan.textContent = slot.assignedNames[index] || `ID:${participantId}`;
+                            if (slot.isFixedStatus && slot.isFixedStatus[index] === true) {
+                                nameSpan.classList.add('font-bold', 'text-red-600');
+                            }
+                            if (slot.assigned.length > 1 && index < slot.assigned.length - 1) {
+                                nameSpan.textContent += ', ';
+                            }
+                            entryDiv.appendChild(nameSpan);
+                        });
+                        cell.appendChild(entryDiv);
+                    });
+                }
+                date++;
+                cellsInWeek++;
+            }
+            weekRow.appendChild(cell);
+        }
+        if (cellsInWeek > 0 || i === 0) {
+             tbody.appendChild(weekRow);
+        }
+        if(date > daysInMonth && cellsInWeek === 0) break;
+    }
+    table.appendChild(tbody);
+    calendarDisplay.appendChild(table);
+}
+
+function displayMessage(message, type = 'info') {
+    messageDiv.textContent = message;
+    messageDiv.className = 'p-3 rounded-md text-sm ';
+    switch (type) {
+        case 'success': messageDiv.classList.add('bg-green-100', 'text-green-700'); break;
+        case 'error': messageDiv.classList.add('bg-red-100', 'text-red-700'); break;
+        case 'info': default: messageDiv.classList.add('bg-sky-100', 'text-sky-700'); break;
+    }
+}
+
+async function handleResetCurrentMonthSchedule() {
+    const year = parseInt(yearInput.value);
+    const month = parseInt(monthInput.value);
+    if (!year || year < 2000 || year > 2100) { displayMessage('유효한 년도를 입력하세요 (2000-2100).', 'error'); return; }
+    if (!month || month < 1 || month > 12) { displayMessage('유효한 월을 선택하세요.', 'error'); return; }
+    if (confirm(`${year}년 ${month}월의 모든 생성된 일정, 기록된 결석 현황, 그리고 순차 배정 시작점을 정말로 초기화하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) {
+        try {
+            messageDiv.textContent = '일정, 결석 기록, 순차 배정 시작점 초기화 중...';
+            messageDiv.className = 'text-blue-600 p-2 rounded-md bg-blue-50';
+            await db.saveSchedule(year, month, []);
+            let attendanceClearedCount = 0;
+            try {
+                const clearAbsenceResult = await attendanceLogic.clearAllAbsencesInView(year, month, null);
+                if (clearAbsenceResult.success) attendanceClearedCount = clearAbsenceResult.countCleared;
+                else console.warn('Failed to clear absences during schedule reset.', clearAbsenceResult.error);
+            } catch (attError) { console.error('Error clearing attendance records during schedule reset:', attError); }
+            try {
+                await db.resetAllScheduleState();
+                console.log('Schedule indices have been reset.');
+            } catch (stateError) {
+                console.error('Error resetting schedule indices during full reset:', stateError);
+                messageDiv.textContent += ' (순차 배정 시작점 초기화 실패)';
+            }
+            renderCalendar(year, month, null);
+            displayMessage(`${year}년 ${month}월 일정, ${attendanceClearedCount}건의 결석 기록, 및 순차 배정 시작점이 성공적으로 초기화되었습니다.`, 'success');
+        } catch (error) {
+            console.error('Error resetting schedule:', error);
+            messageDiv.textContent = `일정 초기화 중 주요 오류 발생: ${error.message || '알 수 없는 오류'}`;
+            messageDiv.className = 'text-red-600 p-2 rounded-md bg-red-50';
+        }
     }
 }
