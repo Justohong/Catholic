@@ -1,5 +1,6 @@
 import * as shareLogic from './share_logic.js';
 import * as db from './db.js';
+import { openScheduleInspectionModal, closeScheduleInspectionModal } from './schedule_generation_ui.js';
 
 let currentYear, currentMonth;
 let currentScheduleData = null;
@@ -50,6 +51,40 @@ export async function initShareView() {
     });
 
     downloadBtn.addEventListener('click', handleDownload);
+
+    // Create and configure the new inspection button
+    const inspectShareScheduleBtn = document.createElement('button');
+    inspectShareScheduleBtn.id = 'inspect-share-schedule-btn';
+    inspectShareScheduleBtn.innerHTML = '<i data-lucide="clipboard-list" class="h-5 w-5"></i>';
+    inspectShareScheduleBtn.title = '월별 배정 현황 점검';
+    inspectShareScheduleBtn.className = 'btn btn-icon text-slate-700 hover:text-sky-600 hover:bg-slate-100 p-2';
+
+    inspectShareScheduleBtn.addEventListener('click', () => {
+        const yearStr = yearInput.value; // yearInput is already defined for share_ui.js
+        const monthStr = monthInput.value; // monthInput is already defined for share_ui.js
+
+        if (!yearStr || !monthStr) {
+            messageDiv.textContent = '점검을 위해 년도와 월을 선택해주세요.';
+            messageDiv.className = 'my-2 text-red-500';
+            return;
+        }
+        const year = parseInt(yearStr);
+        const month = parseInt(monthStr);
+
+        if (isNaN(year) || isNaN(month) || year < 2000 || year > 2100 || month < 1 || month > 12) {
+            messageDiv.textContent = '유효한 년도(2000-2100)와 월(1-12)을 입력해주세요.';
+            messageDiv.className = 'my-2 text-red-500';
+            return;
+        }
+        openScheduleInspectionModal(year, month);
+    });
+
+    // Insert the new button before the download button
+    if (downloadBtn && downloadBtn.parentNode) {
+        downloadBtn.parentNode.insertBefore(inspectShareScheduleBtn, downloadBtn);
+    } else {
+        console.error("Download button or its parent not found. Could not insert inspection button.");
+    }
 
     modalCloseBtn.addEventListener('click', closeEditModal);
     modalSaveBtn.addEventListener('click', handleSaveAssignment);
@@ -202,10 +237,22 @@ function renderShareCalendar(year, month, scheduleDays, participantsList) {
                         slotDiv.style.fontSize = '11px';
                         slotDiv.style.lineHeight = '1.375';
                         slotDiv.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
-                        slotDiv.style.border = '1px solid #d1d5db';
-                        slotDiv.style.backgroundColor = '#f3f4f6';
-                        slotDiv.style.color = '#374151';
+                        slotDiv.style.border = '1px solid #d1d5db'; // Default border
+                        slotDiv.style.backgroundColor = '#f3f4f6'; // Default background (slate-100)
+                        slotDiv.style.color = '#374151'; // Default text color (slate-700)
                         slotDiv.style.boxSizing = 'border-box';
+
+                        // Conditional styling based on slot.type
+                        if (slot.type === 'elementary') {
+                            slotDiv.style.backgroundColor = '#e0f2fe'; // sky-100
+                            slotDiv.style.borderColor = '#bae6fd'; // sky-200
+                            // slotDiv.style.color = '#0c4a6e'; // sky-800 or sky-900 if needed for contrast
+                        } else if (slot.type === 'middle') {
+                            slotDiv.style.backgroundColor = '#dcfce7'; // emerald-100
+                            slotDiv.style.borderColor = '#a7f3d0'; // emerald-200
+                            // slotDiv.style.color = '#065f46'; // emerald-800 or emerald-900 if needed for contrast
+                        }
+                        // If neither, it keeps the default slate-100 background and slate-300 border
                         slotDiv.style.width = '100%';
                         slotDiv.style.overflow = 'hidden';
                         slotDiv.style.display = 'block';
@@ -276,86 +323,9 @@ function renderShareCalendar(year, month, scheduleDays, participantsList) {
     calendarContainer.appendChild(table);
 }
 
-// New renderInspectionTable function
-function renderInspectionTable(analysisData, uniqueCategoryKeys) { // uniqueCategoryKeys is now ['새벽', '1차랜덤', '2차랜덤']
-    if (!inspectionModal || !inspectionModalMessageDiv || !inspectionTableBody || !inspectionTableHeaderRow) {
-        console.error("Inspection modal table elements not found for rendering.");
-        if (inspectionModalMessageDiv) {
-            inspectionModalMessageDiv.textContent = '오류: 점검 모달의 테이블 구성 요소를 찾을 수 없습니다.';
-            inspectionModalMessageDiv.className = 'my-2 text-sm text-red-600';
-        }
-        return;
-    }
-
-    inspectionTableHeaderRow.innerHTML = '';
-    inspectionTableBody.innerHTML = '';
-
-    if (!analysisData || analysisData.length === 0) {
-        if (!inspectionModalMessageDiv.textContent || inspectionModalMessageDiv.className.includes('text-blue-600')) {
-             inspectionModalMessageDiv.textContent = '표시할 배정 분석 데이터가 없습니다.';
-             inspectionModalMessageDiv.className = 'my-2 text-sm text-slate-500';
-        }
-        return;
-    }
-
-    // 1. Create Table Header
-    const headerCellClasses = 'px-2 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider';
-    const headerTitles = ['초중구분', '이름', '총 배정', '새벽', '1차랜덤', '2차랜덤']; // New fixed headers
-
-    headerTitles.forEach(title => {
-        const th = document.createElement('th');
-        th.className = headerCellClasses;
-        if (['총 배정', '새벽', '1차랜덤', '2차랜덤'].includes(title)) {
-            th.classList.add('text-center');
-        }
-        th.textContent = title;
-        inspectionTableHeaderRow.appendChild(th);
-    });
-
-    // 2. Create Table Body
-    analysisData.forEach(participantAnalysis => {
-        const tr = inspectionTableBody.insertRow();
-
-        // '초중구분' Cell
-        const tdType = tr.insertCell();
-        tdType.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-800';
-        tdType.textContent = participantAnalysis.participantType;
-
-        // '이름' Cell
-        const tdName = tr.insertCell();
-        tdName.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-800 font-medium';
-        tdName.textContent = participantAnalysis.participantName;
-
-        // '총 배정' Cell
-        const tdTotal = tr.insertCell();
-        tdTotal.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-600 text-center';
-        tdTotal.textContent = participantAnalysis.totalAssignments;
-
-        // Aggregated Category Cells ('새벽', '1차랜덤', '2차랜덤')
-        const aggregatedKeysToDisplay = ['새벽', '1차랜덤', '2차랜덤'];
-
-        aggregatedKeysToDisplay.forEach(aggKey => {
-            const tdAgg = tr.insertCell();
-            tdAgg.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-600 text-center';
-            const categoryData = participantAnalysis.aggregatedByCategory ? participantAnalysis.aggregatedByCategory.get(aggKey) : null;
-
-            if (categoryData && categoryData.count > 0) {
-                if (categoryData.fixedCount > 0) {
-                    tdAgg.innerHTML = `${categoryData.count} (<span class="text-red-500 font-bold">${categoryData.fixedCount}</span>)`;
-                } else {
-                    tdAgg.textContent = categoryData.count;
-                }
-            } else {
-                tdAgg.textContent = '0';
-            }
-        });
-    });
-
-    if (typeof lucide !== 'undefined') {
-        lucide.createIcons();
-    }
-}
-// End of new renderInspectionTable function
+// The renderInspectionTable function from schedule_generation_ui.js is not needed here.
+// It's managed by schedule_generation_ui.js when openScheduleInspectionModal is called.
+// Removing the duplicated function.
 
 async function handleDownload() {
     if (!currentScheduleData) {
