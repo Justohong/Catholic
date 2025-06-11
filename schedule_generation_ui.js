@@ -249,6 +249,14 @@ function renderInspectionTable(analysisData, uniqueCategoryKeys) { // uniqueCate
     analysisData.forEach(participantAnalysis => {
         const tr = inspectionTableBody.insertRow();
 
+        // --- Add the new conditional styling here ---
+        if (participantAnalysis.participantType === '중등') {
+            tr.style.backgroundColor = '#f1f5f9'; // This is Tailwind's slate-100 color
+        } else {
+            tr.style.backgroundColor = ''; // Ensures '초등' rows use default (e.g., white)
+        }
+        // --- End of new conditional styling ---
+
         // '초중구분' Cell
         const tdType = tr.insertCell();
         tdType.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-800';
