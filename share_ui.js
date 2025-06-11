@@ -52,26 +52,22 @@ export async function initShareView() {
 
     downloadBtn.addEventListener('click', handleDownload);
 
-    // Create and configure the new inspection button
-    const inspectShareScheduleBtn = document.createElement('button');
-    inspectShareScheduleBtn.id = 'inspect-share-schedule-btn';
-    inspectShareScheduleBtn.innerHTML = '<i data-lucide="clipboard-list" class="h-5 w-5"></i>';
-    inspectShareScheduleBtn.title = '월별 배정 현황 점검';
-    inspectShareScheduleBtn.className = 'btn btn-icon text-slate-700 hover:text-sky-600 hover:bg-slate-100 p-2';
+    // A. Element Initialization and Management
+    // 1. inspectShareScheduleBtn (Button)
+    let inspectBtn = document.getElementById('inspect-share-schedule-btn');
+    if (inspectBtn && inspectBtn.parentNode) {
+        inspectBtn.parentNode.removeChild(inspectBtn); // Remove from DOM if exists
+    }
+    // Always re-create it
+    inspectBtn = document.createElement('button');
+    inspectBtn.id = 'inspect-share-schedule-btn';
+    inspectBtn.innerHTML = '<i data-lucide="clipboard-list" class="h-5 w-5"></i>';
+    inspectBtn.title = '월별 배정 현황 점검';
+    inspectBtn.className = 'btn btn-icon text-slate-700 hover:text-sky-600 hover:bg-slate-100 p-2';
 
-    // Create a wrapper for icon buttons
-    const iconButtonsWrapper = document.createElement('div');
-    iconButtonsWrapper.style.display = 'flex';       // Kept for internal alignment of icons
-    iconButtonsWrapper.style.alignItems = 'center';  // Kept for internal alignment of icons
-    iconButtonsWrapper.style.gap = '0.5rem';         // Kept for spacing between icons
-    iconButtonsWrapper.style.width = '';             // Reset: No longer full width as a block
-    iconButtonsWrapper.style.justifyContent = 'flex-start'; // Reset: Alignment handled by parent titleLineWrapper
-    iconButtonsWrapper.style.marginBottom = '';      // Reset: Margin handled by parent titleLineWrapper
-
-    inspectShareScheduleBtn.addEventListener('click', () => {
-        const yearStr = yearInput.value; // yearInput is already defined for share_ui.js
-        const monthStr = monthInput.value; // monthInput is already defined for share_ui.js
-
+    inspectBtn.addEventListener('click', () => {
+        const yearStr = yearInput.value;
+        const monthStr = monthInput.value;
         if (!yearStr || !monthStr) {
             messageDiv.textContent = '점검을 위해 년도와 월을 선택해주세요.';
             messageDiv.className = 'my-2 text-red-500';
@@ -79,7 +75,6 @@ export async function initShareView() {
         }
         const year = parseInt(yearStr);
         const month = parseInt(monthStr);
-
         if (isNaN(year) || isNaN(month) || year < 2000 || year > 2100 || month < 1 || month > 12) {
             messageDiv.textContent = '유효한 년도(2000-2100)와 월(1-12)을 입력해주세요.';
             messageDiv.className = 'my-2 text-red-500';
@@ -88,86 +83,91 @@ export async function initShareView() {
         openScheduleInspectionModal(year, month);
     });
 
-    // Append the inspect button to the new wrapper
-    iconButtonsWrapper.appendChild(inspectShareScheduleBtn);
-
-    // Ensure iconButtonsWrapper is detached from any previous parent for clean re-insertion.
-    if (iconButtonsWrapper.parentNode) {
-        iconButtonsWrapper.parentNode.removeChild(iconButtonsWrapper);
+    // 2. iconButtonsWrapper (as iconWrapper)
+    let iconWrapper = document.getElementById('share-view-icon-wrapper');
+    if (!iconWrapper) {
+        iconWrapper = document.createElement('div');
+        iconWrapper.id = 'share-view-icon-wrapper';
+    } else {
+        iconWrapper.innerHTML = ''; // Clear contents if it exists
     }
+    // Set essential styles for internal layout
+    iconWrapper.style.display = 'flex';
+    iconWrapper.style.alignItems = 'center';
+    iconWrapper.style.gap = '0.5rem';
+    // Append the fresh inspectBtn
+    iconWrapper.appendChild(inspectBtn);
 
-    // Attempt to find the H2 title element with a simpler selector
+    // B. Title Line and Icon Placement Logic
     const titleElement = document.querySelector('#shareView h2');
-    const mainControlsArea = document.querySelector('#shareView > div.space-y-4'); // Needed for fallback
+    const mainControlsArea = document.querySelector('#shareView > div.space-y-4');
 
     if (titleElement && titleElement.parentNode) {
-        // H2 title found, proceed with title-line placement
-        console.log('H2 title found. Attempting to move iconButtonsWrapper to title line.');
+        console.log('H2 title found. Placing icon on title line.');
 
-        // Detach iconButtonsWrapper from its current location (e.g. above controls)
-        // This is redundant if the first detachment worked, but safe.
-        if (iconButtonsWrapper.parentNode) {
-            iconButtonsWrapper.parentNode.removeChild(iconButtonsWrapper);
+        let titleBar = document.getElementById('share-view-title-bar');
+        if (!titleBar) {
+            titleBar = document.createElement('div');
+            titleBar.id = 'share-view-title-bar';
+            titleElement.parentNode.insertBefore(titleBar, titleElement);
+            titleBar.appendChild(titleElement);
+        } else {
+            if (titleBar.firstChild !== titleElement) {
+                // Ensure H2 is the first child if titleBar already exists.
+                titleBar.prepend(titleElement);
+            }
+            // Remove any other DIV children from titleBar that are not titleElement or iconWrapper
+            Array.from(titleBar.children).forEach(child => {
+                if (child !== titleElement && child !== iconWrapper && child.tagName === 'DIV') {
+                    child.remove();
+                }
+            });
         }
 
-        // Create and style newTitleLine
-        const newTitleLine = document.createElement('div');
-        newTitleLine.style.display = 'flex';
-        newTitleLine.style.justifyContent = 'space-between';
-        newTitleLine.style.alignItems = 'center';
+        // Style titleBar
+        titleBar.style.display = 'flex';
+        titleBar.style.justifyContent = 'space-between';
+        titleBar.style.alignItems = 'center';
 
-        // Handle margin: copy from H2 if possible, then remove from H2
+        // Handle margin from H2
         if (titleElement.classList.contains('mb-4')) {
-            newTitleLine.style.marginBottom = '1rem'; // Tailwind mb-4 is 1rem
+            titleBar.style.marginBottom = '1rem';
             titleElement.classList.remove('mb-4');
         } else if (titleElement.style.marginBottom && titleElement.style.marginBottom !== '0px') {
-            newTitleLine.style.marginBottom = titleElement.style.marginBottom;
+            titleBar.style.marginBottom = titleElement.style.marginBottom;
             titleElement.style.marginBottom = '';
         } else {
-            newTitleLine.style.marginBottom = '1rem'; // Default if H2 had no specific bottom margin
+            // If titleBar itself doesn't have a bottom margin from a class, set it.
+            // Check existing style to avoid overriding a class-based margin.
+            if (!getComputedStyle(titleBar).marginBottom || getComputedStyle(titleBar).marginBottom === '0px') {
+                 titleBar.style.marginBottom = '1rem';
+            }
         }
 
-        // Insert newTitleLine before H2, then move H2 and iconButtonsWrapper into it
-        titleElement.parentNode.insertBefore(newTitleLine, titleElement);
-        newTitleLine.appendChild(titleElement);
-        newTitleLine.appendChild(iconButtonsWrapper);
+        // Append the definitive iconWrapper to titleBar
+        titleBar.appendChild(iconWrapper);
 
-        // Reset styles on iconButtonsWrapper as it's now a simple flex child for icons
-        iconButtonsWrapper.style.width = '';
-        iconButtonsWrapper.style.justifyContent = 'flex-start'; // Align icons to the start of their small wrapper
-        iconButtonsWrapper.style.marginBottom = '';
-        // Ensure internal styles for icon layout remain (display:flex, alignItems:center, gap)
-        iconButtonsWrapper.style.display = 'flex';
-        iconButtonsWrapper.style.alignItems = 'center';
-        iconButtonsWrapper.style.gap = '0.5rem';
+        // Reset iconWrapper styles for this context
+        iconWrapper.style.width = '';
+        iconWrapper.style.justifyContent = ''; // or 'flex-start'
+        iconWrapper.style.marginBottom = '';
 
-        console.log('iconButtonsWrapper moved to title line.');
     } else {
-        // H2 title NOT found. Keep/place iconButtonsWrapper in its safe fallback position.
-        console.error('Share view H2 title element not found. IconButtonsWrapper remains in fallback position (above controls).');
+        console.error('Share view H2 title not found. Placing icon in fallback position.');
+        // Style iconWrapper for fallback (full-width bar, icons right)
+        iconWrapper.style.width = '100%';
+        iconWrapper.style.justifyContent = 'flex-end';
+        iconWrapper.style.marginBottom = '0.75rem';
 
-        // Ensure it's styled for the fallback position
-        iconButtonsWrapper.style.width = '100%';
-        iconButtonsWrapper.style.display = 'flex';
-        iconButtonsWrapper.style.justifyContent = 'flex-end';
-        iconButtonsWrapper.style.marginBottom = '0.75rem';
-        iconButtonsWrapper.style.alignItems = 'center'; // Reaffirm
-        iconButtonsWrapper.style.gap = '0.5rem';       // Reaffirm
+        // Place iconWrapper before mainControlsArea or other fallback
+        if (iconWrapper.parentNode) iconWrapper.parentNode.removeChild(iconWrapper); // Detach first
 
-        // Ensure it's in the DOM at the fallback position if not already there.
-        if (!iconButtonsWrapper.parentNode) {
-            if (mainControlsArea && mainControlsArea.parentNode) {
-                mainControlsArea.parentNode.insertBefore(iconButtonsWrapper, mainControlsArea);
-            } else {
-                const shareViewContainer = document.getElementById('share-view');
-                if (shareViewContainer) {
-                    shareViewContainer.prepend(iconButtonsWrapper);
-                    console.error('Fallback (H2 not found): mainControlsArea not found, prepended icon wrapper to shareView.');
-                } else {
-                    console.error('Critical Fallback (H2 not found): #shareView container not found. Appending icon wrapper to body.');
-                    document.body.appendChild(iconButtonsWrapper);
-                }
-            }
+        if (mainControlsArea && mainControlsArea.parentNode) {
+            mainControlsArea.parentNode.insertBefore(iconWrapper, mainControlsArea);
+        } else if (document.getElementById('shareView')) {
+            document.getElementById('shareView').prepend(iconWrapper);
+        } else {
+            document.body.prepend(iconWrapper);
         }
     }
     // Note: The downloadBtn remains separate.
