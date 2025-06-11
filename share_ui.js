@@ -59,6 +59,12 @@ export async function initShareView() {
     inspectShareScheduleBtn.title = '월별 배정 현황 점검';
     inspectShareScheduleBtn.className = 'btn btn-icon text-slate-700 hover:text-sky-600 hover:bg-slate-100 p-2';
 
+    // Create a wrapper for icon buttons
+    const iconButtonsWrapper = document.createElement('div');
+    iconButtonsWrapper.style.display = 'flex';
+    iconButtonsWrapper.style.alignItems = 'center';
+    iconButtonsWrapper.style.gap = '0.5rem'; // 8px
+
     inspectShareScheduleBtn.addEventListener('click', () => {
         const yearStr = yearInput.value; // yearInput is already defined for share_ui.js
         const monthStr = monthInput.value; // monthInput is already defined for share_ui.js
@@ -79,12 +85,21 @@ export async function initShareView() {
         openScheduleInspectionModal(year, month);
     });
 
-    // Insert the new button before the download button
-    if (downloadBtn && downloadBtn.parentNode) {
-        downloadBtn.parentNode.insertBefore(inspectShareScheduleBtn, downloadBtn);
+    // Append the inspect button to the new wrapper
+    iconButtonsWrapper.appendChild(inspectShareScheduleBtn);
+
+    // Insert the iconButtonsWrapper after viewScheduleBtn
+    if (viewScheduleBtn && viewScheduleBtn.parentNode) {
+        viewScheduleBtn.parentNode.insertBefore(iconButtonsWrapper, viewScheduleBtn.nextSibling);
     } else {
-        console.error("Download button or its parent not found. Could not insert inspection button.");
+        console.error("viewScheduleBtn or its parent not found. Could not insert iconButtonsWrapper.");
+        // Fallback: if viewScheduleBtn's ideal position is not found, append to downloadBtn's parent
+        // to at least make it visible, though layout might not be perfect.
+        // This part depends on the actual HTML structure; the previous logic for downloadBtn might be a hint.
+        // For now, the primary strategy is viewScheduleBtn.nextSibling.
+        // The original line: downloadBtn.parentNode.insertBefore(inspectShareScheduleBtn, downloadBtn); is removed.
     }
+    // Note: The downloadBtn remains separate and is not added to this iconButtonsWrapper.
 
     modalCloseBtn.addEventListener('click', closeEditModal);
     modalSaveBtn.addEventListener('click', handleSaveAssignment);
