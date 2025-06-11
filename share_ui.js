@@ -368,7 +368,7 @@ function renderShareCalendar(year, month, scheduleDays, participantsList) {
                                     nameSpan.textContent = participant.name;
                                     // Text color will be inherited from slotDiv.style.color
                                     if (slot.isFixedStatus && slot.isFixedStatus[index] === true) {
-                                        nameSpan.style.fontWeight = '800';
+                                        // nameSpan.style.fontWeight = '800'; // Removed as per request
                                     }
                                 } else {
                                     nameSpan.textContent = `ID:${participantId}`;
