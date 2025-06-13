@@ -28,7 +28,7 @@ export async function handleExportAllData() {
         const url = URL.createObjectURL(blob);
 
         const timestamp = new Date().toISOString().replace(/[.:T]/g, '-').slice(0, -5);
-        const filename = `sungdang_backup_${timestamp}.json`;
+        const filename = `Catholic_backup_${timestamp}.json`;
 
         const downloadLink = document.createElement('a');
         downloadLink.href = url;
