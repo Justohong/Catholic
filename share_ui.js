@@ -6,6 +6,9 @@ let currentYear, currentMonth;
 let currentScheduleData = null;
 let allParticipants = [];
 
+const SHARE_YEAR_KEY = 'selectedShareYear';
+const SHARE_MONTH_KEY = 'selectedShareMonth';
+
 const daysOfWeekKorConcise = ['일', '월', '화', '수', '목', '금', '토'];
 
 const yearInput = document.getElementById('share-year');
@@ -39,12 +42,21 @@ let editContext = null;
 
 
 export async function initShareView() {
-    const today = new Date();
-    currentYear = today.getFullYear();
-    currentMonth = today.getMonth() + 1;
+    const storedYearString = sessionStorage.getItem(SHARE_YEAR_KEY);
+    const storedMonthString = sessionStorage.getItem(SHARE_MONTH_KEY);
 
-    yearInput.value = currentYear;
-    monthInput.value = currentMonth;
+    if (storedYearString && storedMonthString) {
+        currentYear = parseInt(storedYearString);
+        currentMonth = parseInt(storedMonthString);
+        yearInput.value = currentYear;
+        monthInput.value = currentMonth;
+    } else {
+        const today = new Date();
+        currentYear = today.getFullYear();
+        currentMonth = today.getMonth() + 1;
+        yearInput.value = currentYear;
+        monthInput.value = currentMonth;
+    }
 
     allParticipants = await db.getAllParticipants();
 
@@ -63,6 +75,8 @@ export async function initShareView() {
         }
         currentYear = year;
         currentMonth = month;
+        sessionStorage.setItem(SHARE_YEAR_KEY, year.toString());
+        sessionStorage.setItem(SHARE_MONTH_KEY, month.toString());
         await loadAndRenderCalendar(currentYear, currentMonth);
     });
 
@@ -193,6 +207,45 @@ export async function initShareView() {
     modalSaveBtn.addEventListener('click', handleSaveAssignment);
     modalGenderFilter.addEventListener('change', populateParticipantSelect);
 
+    // Create button group wrapper
+    const buttonGroupWrapper = document.createElement('div');
+    buttonGroupWrapper.className = 'flex flex-col sm:flex-row gap-2 items-stretch sm:items-end w-full sm:col-span-2';
+
+    // Detach and Append Buttons to Wrapper
+    if (viewScheduleBtn.parentNode) {
+        viewScheduleBtn.parentNode.removeChild(viewScheduleBtn);
+    }
+    if (downloadBtn.parentNode) {
+        downloadBtn.parentNode.removeChild(downloadBtn);
+    }
+    // downloadExcelBtn is newly created and not in DOM yet, but check just in case future changes alter this
+    if (downloadExcelBtn.parentNode) {
+        downloadExcelBtn.parentNode.removeChild(downloadExcelBtn);
+    }
+
+    buttonGroupWrapper.appendChild(viewScheduleBtn);
+    buttonGroupWrapper.appendChild(downloadBtn);
+    buttonGroupWrapper.appendChild(downloadExcelBtn);
+
+    // Append Wrapper to Main Grid
+    // The main grid is assumed to be the parent of the div that contains yearInput.
+    // This usually means yearInput's parent is a grid item (e.g., a div with col-span),
+    // and that item's parent is the grid container itself.
+    if (yearInput && yearInput.parentNode && yearInput.parentNode.parentNode) {
+        const mainGridDiv = yearInput.parentNode.parentNode;
+        mainGridDiv.appendChild(buttonGroupWrapper);
+    } else {
+        console.error("Share UI: Could not find the parent grid container to append button group.");
+        // Fallback: append to a known controls area if main grid isn't found as expected
+        const controlsContainer = document.querySelector('#shareView > div.flex.flex-col.sm\\:flex-row.gap-4.mb-4');
+        if (controlsContainer) {
+            controlsContainer.appendChild(buttonGroupWrapper);
+            console.warn("Share UI: Appended button group to fallback container.");
+        } else {
+             // Last resort, append near yearInput if structure is very different
+            if(yearInput && yearInput.parentNode) yearInput.parentNode.appendChild(buttonGroupWrapper);
+        }
+    }
 
     await loadAndRenderCalendar(currentYear, currentMonth);
     lucide.createIcons(); // Ensure icons are processed after any innerHTML changes.

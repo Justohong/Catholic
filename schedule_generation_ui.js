@@ -6,6 +6,9 @@ import * as inspectionLogic from './inspection_logic.js'; // 새로 추가
 let yearInput, monthInput, generateBtn, calendarDisplay, messageDiv, viewExistingScheduleBtn;
 // Inspection Modal related variables
 let inspectionModal, closeInspectionModalBtnTop, closeInspectionModalBtnBottom, inspectionModalMessageDiv, inspectionTableHeaderRow, inspectionTableBody;
+
+const SCHEDULE_YEAR_KEY = 'selectedScheduleYear';
+const SCHEDULE_MONTH_KEY = 'selectedScheduleMonth';
 let inspectionModalListenersAttached = false; // Prevents duplicate listener attachment
 
 const KOREAN_DAYS = ['일', '월', '화', '수', '목', '금', '토'];
@@ -38,11 +41,21 @@ export function initScheduleGenerationView(viewElementId) {
         return;
     }
 
-    const currentYear = new Date().getFullYear();
-    const currentMonth = new Date().getMonth() + 1;
+    const storedYear = sessionStorage.getItem(SCHEDULE_YEAR_KEY);
+    const storedMonth = sessionStorage.getItem(SCHEDULE_MONTH_KEY);
 
-    yearInput.value = currentYear;
-    monthInput.value = currentMonth.toString();
+    if (storedYear && storedMonth) {
+        yearInput.value = storedYear;
+        monthInput.value = storedMonth;
+        loadScheduleDataForInputs(); // Call the new function to load data
+    } else {
+        const currentYear = new Date().getFullYear();
+        const currentMonth = new Date().getMonth() + 1;
+        yearInput.value = currentYear;
+        monthInput.value = currentMonth.toString();
+        // If you want to load the current month's schedule by default when nothing is stored:
+        // loadScheduleDataForInputs();
+    }
 
     generateBtn.addEventListener('click', handleGenerateSchedule);
     if (viewExistingScheduleBtn) {
@@ -150,6 +163,31 @@ export function initScheduleGenerationView(viewElementId) {
     }
 
     lucide.createIcons();
+}
+
+async function loadScheduleDataForInputs() {
+    const year = parseInt(yearInput.value);
+    const month = parseInt(monthInput.value);
+
+    if (!year || year < 2000 || year > 2100 || !month || month < 1 || month > 12) {
+        calendarDisplay.innerHTML = ''; // Clear previous calendar
+        // No error message on initial silent load
+        return;
+    }
+
+    calendarDisplay.innerHTML = ''; // Clear previous calendar
+    try {
+        const scheduleObject = await db.getSchedule(year, month);
+        if (scheduleObject && scheduleObject.data && scheduleObject.data.length > 0) {
+            renderCalendar(year, month, scheduleObject.data);
+        } else {
+            renderCalendar(year, month, null); // Render empty calendar for the selected period
+        }
+    } catch (error) {
+        console.error("Failed to load schedule for inputs:", error);
+        renderCalendar(year, month, null); // Render empty calendar on error
+    }
+    if (typeof lucide !== 'undefined') lucide.createIcons();
 }
 
 // New handler for the "Inspect Schedule" button click in the UI
@@ -269,6 +307,9 @@ async function handleViewExistingSchedule() {
     displayMessage('기존 일정을 불러오는 중...', 'info');
     calendarDisplay.innerHTML = '';
     try {
+        // Store the year and month that was just viewed/attempted
+        sessionStorage.setItem(SCHEDULE_YEAR_KEY, year.toString());
+        sessionStorage.setItem(SCHEDULE_MONTH_KEY, month.toString());
         const scheduleObject = await db.getSchedule(year, month);
         if (scheduleObject && scheduleObject.data && scheduleObject.data.length > 0) {
             renderCalendar(year, month, scheduleObject.data);
@@ -471,6 +512,8 @@ async function handleGenerateSchedule() {
     try {
         const resultObject = await logic.generateSchedule(year, month);
         renderCalendar(year, month, resultObject.schedule);
+        sessionStorage.setItem(SCHEDULE_YEAR_KEY, year.toString());
+        sessionStorage.setItem(SCHEDULE_MONTH_KEY, month.toString());
         displayMessage('일정이 성공적으로 생성되었습니다.', 'success');
     } catch (error) {
         console.error("Schedule generation failed:", error);
