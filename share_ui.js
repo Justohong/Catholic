@@ -493,7 +493,7 @@ function renderShareCalendar(year, month, scheduleDays, participantsList) {
                         slotDiv.style.marginTop = '0.25rem';
                         slotDiv.style.marginBottom = '0.25rem';
                         slotDiv.style.borderRadius = '0.5rem';
-                        slotDiv.style.textAlign = 'left';
+                        slotDiv.style.textAlign = 'center';
                         slotDiv.style.fontSize = '11px';
                         slotDiv.style.lineHeight = '1.375';
                         slotDiv.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
