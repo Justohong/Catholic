@@ -15,6 +15,16 @@ const downloadBtn = document.getElementById('download-schedule-img-btn');
 const calendarContainer = document.getElementById('share-calendar-container');
 const messageDiv = document.getElementById('share-message');
 
+// New button for Excel Export
+const downloadExcelBtn = document.createElement('button');
+downloadExcelBtn.id = 'download-schedule-excel-btn';
+downloadExcelBtn.innerHTML = '<i data-lucide="file-spreadsheet" class="h-4 w-4 mr-2"></i>엑셀 다운로드';
+downloadExcelBtn.className = 'btn btn-secondary w-full sm:w-auto py-2 px-4 inline-flex items-center justify-center';
+// Append it next to the image download button
+if (downloadBtn && downloadBtn.parentNode) {
+    downloadBtn.parentNode.insertBefore(downloadExcelBtn, downloadBtn.nextSibling);
+}
+
 const modal = document.getElementById('editAssignmentModal');
 const modalTitle = document.getElementById('editModalTitle');
 const modalCurrentAssignmentsDiv = document.getElementById('editModalCurrentAssignments');
@@ -51,6 +61,7 @@ export async function initShareView() {
     });
 
     downloadBtn.addEventListener('click', handleDownload);
+    downloadExcelBtn.addEventListener('click', handleExportExcel);
 
     // A. Element Initialization and Management
     // 1. inspectShareScheduleBtn (Button)
@@ -178,7 +189,98 @@ export async function initShareView() {
 
 
     await loadAndRenderCalendar(currentYear, currentMonth);
-    lucide.createIcons();
+    // lucide.createIcons(); // Already called at the end of initShareView, this line can be removed if duplicated
+}
+
+async function handleExportExcel() {
+    if (!currentScheduleData || !currentScheduleData.data || currentScheduleData.data.length === 0) {
+        messageDiv.textContent = '엑셀로 내보낼 일정이 없습니다. 먼저 일정을 조회해주세요.';
+        messageDiv.className = 'my-2 text-red-500';
+        return;
+    }
+    messageDiv.textContent = 'Excel 파일 생성 중...';
+    messageDiv.className = 'my-2 text-slate-600';
+
+    try {
+        const participantsMap = new Map(allParticipants.map(p => [p.id, p]));
+        const excelDataRows = []; // Renamed to avoid confusion with excelData object from other contexts
+
+        currentScheduleData.data.forEach(daySchedule => {
+            const dateStr = daySchedule.date;
+            daySchedule.timeSlots.forEach(slot => {
+                const timeStr = slot.time;
+                const typeStr = slot.type === 'elementary' ? '초등' : slot.type === 'middle' ? '중등' : slot.type;
+
+                let person1Name = '미배정';
+                let person2Name = '미배정';
+
+                if (slot.assigned && slot.assigned.length > 0) {
+                    person1Name = participantsMap.get(slot.assigned[0])?.name || `ID:${slot.assigned[0]}`;
+                    if (slot.assigned.length > 1) {
+                        person2Name = participantsMap.get(slot.assigned[1])?.name || `ID:${slot.assigned[1]}`;
+                    } else {
+                        // If only one person is assigned, P2 should be empty, not "미배정"
+                        person2Name = '';
+                    }
+                }
+                // If slot.assigned is empty or undefined, both remain '미배정'
+
+                excelDataRows.push({
+                    "년월일": dateStr,
+                    "시간": timeStr,
+                    "구분": typeStr,
+                    "배정인원1": person1Name,
+                    "배정인원2": person2Name
+                });
+            });
+        });
+
+        // We create headers directly with sheet_add_aoa, so pass empty array to json_to_sheet and skipHeader true
+        const ws = XLSX.utils.json_to_sheet(excelDataRows, { skipHeader: true });
+
+        const headerRow = ["년월일", "시간", "구분", "배정인원1", "배정인원2"];
+        XLSX.utils.sheet_add_aoa(ws, [headerRow], { origin: "A1" });
+
+        const fillEven = { fgColor: { rgb: "F0F0F0" } }; // Light gray
+        const cols = [
+            { wch: 12 }, // 년월일
+            { wch: 8 },  // 시간
+            { wch: 8 },  // 구분
+            { wch: 15 }, // 배정인원1
+            { wch: 15 }  // 배정인원2
+        ];
+        ws['!cols'] = cols;
+
+        for (let i = 0; i < excelDataRows.length; i++) {
+            // Zebra striping for data rows. Header is row 1. Data starts at row 2.
+            // (i) is 0-indexed for excelDataRows.
+            // So, excelDataRows[0] is sheet row 2. excelDataRows[1] is sheet row 3.
+            // We want to stripe sheet rows 3, 5, 7... which are excelDataRows[1], excelDataRows[3]... (i.e. i is odd)
+            if (i % 2 === 1) {
+                const rowIndexInSheet = i + 2; // +1 for 0-to-1 index, +1 because data starts after header
+                ['A', 'B', 'C', 'D', 'E'].forEach(colLetter => {
+                    const cellRef = colLetter + rowIndexInSheet;
+                    // Ensure cell object exists, even if value is empty, for styling
+                    if (!ws[cellRef]) ws[cellRef] = { t: 's', v: '' }; // Create empty string cell if not present
+                    ws[cellRef].s = { fill: fillEven };
+                });
+            }
+        }
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "월별일정");
+
+        const fileName = `${currentYear}_${String(currentMonth).padStart(2, '0')}_일정.xlsx`;
+        XLSX.writeFile(wb, fileName);
+
+        messageDiv.textContent = 'Excel 파일 다운로드 성공!';
+        messageDiv.className = 'my-2 text-green-600';
+
+    } catch (error) {
+        console.error('Failed to export Excel:', error);
+        messageDiv.textContent = 'Excel 파일 생성 중 오류가 발생했습니다. ' + error.message;
+        messageDiv.className = 'my-2 text-red-500';
+    }
 }
 
 async function loadAndRenderCalendar(year, month) {
