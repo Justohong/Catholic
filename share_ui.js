@@ -18,7 +18,8 @@ const messageDiv = document.getElementById('share-message');
 // New button for Excel Export
 const downloadExcelBtn = document.createElement('button');
 downloadExcelBtn.id = 'download-schedule-excel-btn';
-downloadExcelBtn.innerHTML = '<i data-lucide="file-spreadsheet" class="h-4 w-4 mr-2"></i>엑셀 다운로드';
+// Updated Excel button label and icon
+downloadExcelBtn.innerHTML = '<i data-lucide="download" class="mr-2 h-4 w-4"></i>엑셀';
 downloadExcelBtn.className = 'btn btn-secondary w-full sm:w-auto py-2 px-4 inline-flex items-center justify-center';
 // Append it next to the image download button
 if (downloadBtn && downloadBtn.parentNode) {
@@ -46,6 +47,11 @@ export async function initShareView() {
     monthInput.value = currentMonth;
 
     allParticipants = await db.getAllParticipants();
+
+    // Update Image Download button label
+    if (downloadBtn) {
+        downloadBtn.innerHTML = '<i data-lucide="download" class="mr-2 h-4 w-4"></i>이미지';
+    }
 
     viewScheduleBtn.addEventListener('click', async () => {
         const year = parseInt(yearInput.value);
@@ -189,7 +195,7 @@ export async function initShareView() {
 
 
     await loadAndRenderCalendar(currentYear, currentMonth);
-    // lucide.createIcons(); // Already called at the end of initShareView, this line can be removed if duplicated
+    lucide.createIcons(); // Ensure icons are processed after any innerHTML changes.
 }
 
 async function handleExportExcel() {
