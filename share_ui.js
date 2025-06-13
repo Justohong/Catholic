@@ -23,11 +23,11 @@ const downloadExcelBtn = document.createElement('button');
 downloadExcelBtn.id = 'download-schedule-excel-btn';
 // Updated Excel button label and icon
 downloadExcelBtn.innerHTML = '<i data-lucide="download" class="mr-2 h-4 w-4"></i>엑셀';
-downloadExcelBtn.className = 'btn btn-secondary w-full sm:w-auto py-2 px-4 inline-flex items-center justify-center';
-// Append it next to the image download button
-if (downloadBtn && downloadBtn.parentNode) {
-    downloadBtn.parentNode.insertBefore(downloadExcelBtn, downloadBtn.nextSibling);
-}
+downloadExcelBtn.className = 'btn btn-secondary w-full sm:flex-1 py-2 px-4 inline-flex items-center justify-center';
+// Old logic removed:
+// if (downloadBtn && downloadBtn.parentNode) {
+//     downloadBtn.parentNode.insertBefore(downloadExcelBtn, downloadBtn.nextSibling);
+// }
 
 const modal = document.getElementById('editAssignmentModal');
 const modalTitle = document.getElementById('editModalTitle');
@@ -60,9 +60,17 @@ export async function initShareView() {
 
     allParticipants = await db.getAllParticipants();
 
-    // Update Image Download button label
+    // Update Image Download button label and classes
     if (downloadBtn) {
         downloadBtn.innerHTML = '<i data-lucide="download" class="mr-2 h-4 w-4"></i>이미지';
+        downloadBtn.classList.remove('sm:w-auto');
+        downloadBtn.classList.add('sm:flex-1');
+    }
+
+    // Update View Schedule button classes
+    if (viewScheduleBtn) {
+        viewScheduleBtn.classList.remove('sm:w-auto');
+        viewScheduleBtn.classList.add('sm:flex-1');
     }
 
     viewScheduleBtn.addEventListener('click', async () => {
@@ -207,44 +215,49 @@ export async function initShareView() {
     modalSaveBtn.addEventListener('click', handleSaveAssignment);
     modalGenderFilter.addEventListener('change', populateParticipantSelect);
 
-    // Create button group wrapper
+    // Define a specific class for the button group wrapper for easy removal
+    const buttonGroupWrapperClass = 'share-action-buttons-wrapper';
+
+    const mainGridDiv = (yearInput && yearInput.parentNode && yearInput.parentNode.parentNode) ? yearInput.parentNode.parentNode : null;
+
+    if (mainGridDiv) {
+        // Remove any existing button group wrapper to prevent duplication
+        const existingButtonGroup = mainGridDiv.querySelector('.' + buttonGroupWrapperClass);
+        if (existingButtonGroup) {
+            existingButtonGroup.remove();
+        }
+    }
+
+    // Create the new button group wrapper
     const buttonGroupWrapper = document.createElement('div');
-    buttonGroupWrapper.className = 'flex flex-col sm:flex-row gap-2 items-stretch sm:items-end w-full sm:col-span-2';
+    buttonGroupWrapper.className = `flex flex-col sm:flex-row gap-2 items-stretch sm:items-end w-full sm:col-span-2 ${buttonGroupWrapperClass}`;
 
-    // Detach and Append Buttons to Wrapper
-    if (viewScheduleBtn.parentNode) {
-        viewScheduleBtn.parentNode.removeChild(viewScheduleBtn);
-    }
-    if (downloadBtn.parentNode) {
-        downloadBtn.parentNode.removeChild(downloadBtn);
-    }
-    // downloadExcelBtn is newly created and not in DOM yet, but check just in case future changes alter this
-    if (downloadExcelBtn.parentNode) {
-        downloadExcelBtn.parentNode.removeChild(downloadExcelBtn);
-    }
+    // Detach buttons from any previous parent (this also handles if they were in an old wrapper)
+    if (viewScheduleBtn.parentNode) viewScheduleBtn.parentNode.removeChild(viewScheduleBtn);
+    if (downloadBtn.parentNode) downloadBtn.parentNode.removeChild(downloadBtn);
+    if (downloadExcelBtn.parentNode) downloadExcelBtn.parentNode.removeChild(downloadExcelBtn);
 
+    // Append buttons to the new wrapper
     buttonGroupWrapper.appendChild(viewScheduleBtn);
     buttonGroupWrapper.appendChild(downloadBtn);
     buttonGroupWrapper.appendChild(downloadExcelBtn);
 
-    // Append Wrapper to Main Grid
-    // The main grid is assumed to be the parent of the div that contains yearInput.
-    // This usually means yearInput's parent is a grid item (e.g., a div with col-span),
-    // and that item's parent is the grid container itself.
-    if (yearInput && yearInput.parentNode && yearInput.parentNode.parentNode) {
-        const mainGridDiv = yearInput.parentNode.parentNode;
+    // Append the new wrapper to the main grid
+    if (mainGridDiv) {
         mainGridDiv.appendChild(buttonGroupWrapper);
     } else {
-        console.error("Share UI: Could not find the parent grid container to append button group.");
-        // Fallback: append to a known controls area if main grid isn't found as expected
-        const controlsContainer = document.querySelector('#shareView > div.flex.flex-col.sm\\:flex-row.gap-4.mb-4');
-        if (controlsContainer) {
-            controlsContainer.appendChild(buttonGroupWrapper);
-            console.warn("Share UI: Appended button group to fallback container.");
-        } else {
-             // Last resort, append near yearInput if structure is very different
-            if(yearInput && yearInput.parentNode) yearInput.parentNode.appendChild(buttonGroupWrapper);
-        }
+        console.error("Share UI: Could not find the parent grid container (mainGridDiv) to append button group. Button group might not be placed correctly.");
+        // Fallback logic from previous attempt (might need review based on actual stable DOM)
+        // const controlsContainer = document.querySelector('#shareView > div.flex.flex-col.sm\\:flex-row.gap-4.mb-4');
+        // if (controlsContainer) {
+        //     controlsContainer.appendChild(buttonGroupWrapper);
+        //     console.warn("Share UI: Appended button group to fallback container (DEPRECATED PATTERN - CHECK DOM).");
+        // } else {
+        //     if(yearInput && yearInput.parentNode) { // Simplest fallback: append near year input
+        //         yearInput.parentNode.appendChild(buttonGroupWrapper);
+        //         console.warn("Share UI: Appended button group to yearInput's parent as final fallback.");
+        //     }
+        // }
     }
 
     await loadAndRenderCalendar(currentYear, currentMonth);
