@@ -1,3 +1,32 @@
+// For testing purposes
+let MOCK_PARTICIPANTS = null;
+let MOCK_PREV_ASSIGNMENTS = null; // Should be Map<participantId, Map<categoryKey, count>>
+let MOCK_PREV_ABSENTEES = null; // Should be Array<participantId>
+
+export function __setMockData(participants, prevAssignments, prevAbsentees) {
+    console.log("Setting mock DB data for test.");
+    MOCK_PARTICIPANTS = participants ? JSON.parse(JSON.stringify(participants)) : null;
+    if (prevAssignments) {
+        MOCK_PREV_ASSIGNMENTS = new Map();
+        // Ensure prevAssignments is a Map<participantId, Map<categoryKey, count>>
+        // If it's passed as an array of [pId, MapData], convert appropriately
+        // For simplicity, assume it's already a Map of Maps from the test setup.
+        for (const [pId, catMapData] of prevAssignments.entries()) {
+            MOCK_PREV_ASSIGNMENTS.set(pId, new Map(catMapData));
+        }
+    } else {
+        MOCK_PREV_ASSIGNMENTS = null;
+    }
+    MOCK_PREV_ABSENTEES = prevAbsentees ? JSON.parse(JSON.stringify(prevAbsentees)) : null;
+}
+
+export function __clearMockData() {
+    console.log("Clearing mock DB data.");
+    MOCK_PARTICIPANTS = null;
+    MOCK_PREV_ASSIGNMENTS = null;
+    MOCK_PREV_ABSENTEES = null;
+}
+
 const DB_NAME = 'SchedulePWA_DB';
 const DB_VERSION = 4; // Ensure DB version is 4
 const PARTICIPANTS_STORE_NAME = 'participants';
@@ -64,6 +93,10 @@ export async function addParticipant(participant) {
 }
 
 export async function getAllParticipants() {
+    if (MOCK_PARTICIPANTS) {
+        console.log("DB MOCK: getAllParticipants called");
+        return Promise.resolve(JSON.parse(JSON.stringify(MOCK_PARTICIPANTS))); // Deep copy
+    }
     const db = await openDB();
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([PARTICIPANTS_STORE_NAME], 'readonly');
@@ -148,6 +181,10 @@ export async function deleteAllParticipants() {
 }
 
 export async function saveSchedule(year, month, scheduleData) {
+    if (MOCK_PARTICIPANTS) { // Using MOCK_PARTICIPANTS as a proxy for "test mode"
+        console.log("DB MOCK: saveSchedule called with", year, month, JSON.parse(JSON.stringify(scheduleData)).length, "days");
+        return Promise.resolve();
+    }
     const db = await openDB();
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([SCHEDULES_STORE_NAME], 'readwrite');
@@ -237,6 +274,10 @@ export async function clearAllAttendanceLogs() {
 }
 
 export async function getAbsenteesForMonth(year, month) {
+    if (MOCK_PREV_ABSENTEES) {
+        console.log("DB MOCK: getAbsenteesForMonth called for", year, month);
+        return Promise.resolve(JSON.parse(JSON.stringify(MOCK_PREV_ABSENTEES))); // Deep copy
+    }
     const db = await openDB();
     return new Promise((resolve, reject) => {
         const transaction = db.transaction([ATTENDANCE_LOG_STORE_NAME], 'readonly');
@@ -400,8 +441,12 @@ export async function clearAllMonthlyAssignmentCounts() {
 }
 
 export async function saveMonthlyAssignmentCounts(year, month, assignmentData) {
+    if (MOCK_PARTICIPANTS) { // Using MOCK_PARTICIPANTS as a proxy for "test mode"
+        console.log("DB MOCK: saveMonthlyAssignmentCounts called with", year, month, JSON.parse(JSON.stringify(assignmentData)));
+        return Promise.resolve();
+    }
     const db = await openDB();
-    return new Promise((resolve, reject) => { // Removed async from outer Promise constructor
+    return new Promise((resolve, reject) => {
         const transaction = db.transaction([MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME], 'readwrite');
         const store = transaction.objectStore(MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME);
 
@@ -473,6 +518,15 @@ export async function saveMonthlyAssignmentCounts(year, month, assignmentData) {
 }
 
 export async function getPreviousMonthAssignmentCounts(currentYear, currentMonth) {
+    if (MOCK_PREV_ASSIGNMENTS) {
+        console.log("DB MOCK: getPreviousMonthAssignmentCounts called for", currentYear, currentMonth);
+        // Deep copy the map structure
+        const clonedMap = new Map();
+        for (const [pId, catMap] of MOCK_PREV_ASSIGNMENTS.entries()) {
+            clonedMap.set(pId, new Map(catMap));
+        }
+        return Promise.resolve(clonedMap);
+    }
     let prevYear = currentYear;
     let prevMonth = currentMonth - 1;
     if (prevMonth === 0) {
