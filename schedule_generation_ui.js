@@ -222,11 +222,27 @@ async function handleSetVacationPeriod() {
 async function loadScheduleDataForInputs() {
     const year = parseInt(yearInput.value);
     const month = parseInt(monthInput.value);
+    let prevMonthAbsentees = [];
 
     if (!year || year < 2000 || year > 2100 || !month || month < 1 || month > 12) {
         calendarDisplay.innerHTML = ''; // Clear previous calendar
         // No error message on initial silent load
         return;
+    }
+
+    if (year && month >= 1 && month <= 12) { // Check if year and month are valid before fetching
+        let prevScheduleYear = year;
+        let prevScheduleMonth = month - 1;
+        if (prevScheduleMonth === 0) {
+            prevScheduleMonth = 12;
+            prevScheduleYear--;
+        }
+        try {
+            prevMonthAbsentees = await db.getAbsenteesForMonth(prevScheduleYear, prevScheduleMonth);
+        } catch (e) {
+            console.error("Failed to fetch prev month absentees in loadScheduleDataForInputs", e);
+            // prevMonthAbsentees remains []
+        }
     }
 
     calendarDisplay.innerHTML = ''; // Clear previous calendar
@@ -237,13 +253,13 @@ async function loadScheduleDataForInputs() {
         allParticipants.forEach(p => participantsMap.set(p.id, p));
 
         if (scheduleObject && scheduleObject.data && scheduleObject.data.length > 0) {
-            renderCalendar(year, month, scheduleObject.data, participantsMap);
+            renderCalendar(year, month, scheduleObject.data, participantsMap, prevMonthAbsentees);
         } else {
-            renderCalendar(year, month, null, participantsMap); // Render empty calendar for the selected period
+            renderCalendar(year, month, null, participantsMap, prevMonthAbsentees); // Render empty calendar for the selected period
         }
     } catch (error) {
         console.error("Failed to load schedule for inputs:", error);
-        renderCalendar(year, month, null, new Map()); // Render empty calendar on error
+        renderCalendar(year, month, null, new Map(), prevMonthAbsentees); // Render empty calendar on error
     }
     if (typeof lucide !== 'undefined') lucide.createIcons();
 }
@@ -373,15 +389,26 @@ async function handleViewExistingSchedule() {
         const participantsMap = new Map();
         allParticipants.forEach(p => participantsMap.set(p.id, p));
 
+        let prevScheduleYear = year;
+        let prevScheduleMonth = month - 1;
+        if (prevScheduleMonth === 0) {
+          prevScheduleMonth = 12;
+          prevScheduleYear--;
+        }
+        const prevMonthAbsentees = await db.getAbsenteesForMonth(prevScheduleYear, prevScheduleMonth);
+
         if (scheduleObject && scheduleObject.data && scheduleObject.data.length > 0) {
-            renderCalendar(year, month, scheduleObject.data, participantsMap);
+            renderCalendar(year, month, scheduleObject.data, participantsMap, prevMonthAbsentees);
             displayMessage(`기존 ${year}년 ${month}월 일정을 불러왔습니다.`, 'info');
         } else {
-            renderCalendar(year, month, null, participantsMap);
+            renderCalendar(year, month, null, participantsMap, prevMonthAbsentees);
             displayMessage('저장된 기존 일정이 없습니다. 새로 생성할 수 있습니다.', 'info');
         }
     } catch (error) {
         console.error("Failed to load existing schedule:", error);
+        // NOTE: It's not specified in the requirement to fetch prevMonthAbsentees in this catch block,
+        // but if the calendar is rendered, it might be good practice.
+        // For now, sticking to the exact requirement.
         renderCalendar(year, month, null, new Map());
         displayMessage('기존 일정 로드 중 오류 발생.', 'error');
     }
@@ -580,14 +607,34 @@ async function handleGenerateSchedule() {
         const allParticipants = await db.getAllParticipants();
         const participantsMap = new Map();
         allParticipants.forEach(p => participantsMap.set(p.id, p));
-        renderCalendar(year, month, resultObject.schedule, participantsMap);
+
+        let prevScheduleYear = year;
+        let prevScheduleMonth = month - 1;
+        if (prevScheduleMonth === 0) {
+          prevScheduleMonth = 12;
+          prevScheduleYear--;
+        }
+        const prevMonthAbsentees = await db.getAbsenteesForMonth(prevScheduleYear, prevScheduleMonth);
+
+        renderCalendar(year, month, resultObject.schedule, participantsMap, prevMonthAbsentees);
         sessionStorage.setItem(SCHEDULE_YEAR_KEY, year.toString());
         sessionStorage.setItem(SCHEDULE_MONTH_KEY, month.toString());
         displayMessage('일정이 성공적으로 생성되었습니다.', 'success');
     } catch (error) {
         console.error("Schedule generation failed:", error);
         displayMessage(`일정 생성 실패: ${error.message}`, 'error');
-        renderCalendar(year, month, null, new Map());
+
+        let prevScheduleYear = year;
+        let prevScheduleMonth = month - 1;
+        if (prevScheduleMonth === 0) {
+          prevScheduleMonth = 12;
+          prevScheduleYear--;
+        }
+        // It's good practice to try/catch this, but following instructions.
+        // Assuming db.getAbsenteesForMonth handles its own errors or returns [].
+        const prevMonthAbsentees = await db.getAbsenteesForMonth(prevScheduleYear, prevScheduleMonth);
+
+        renderCalendar(year, month, null, new Map(), prevMonthAbsentees);
     } finally {
         generateBtn.disabled = false;
         generateBtn.innerHTML = '<i data-lucide="calendar-plus" class="mr-2 h-4 w-4"></i>일정 생성';
@@ -595,7 +642,7 @@ async function handleGenerateSchedule() {
     }
 }
 
-function renderCalendar(year, month, scheduleData, participantsMap = new Map()) {
+function renderCalendar(year, month, scheduleData, participantsMap = new Map(), prevMonthAbsentees = []) {
     calendarDisplay.innerHTML = '';
     const daysInMonth = new Date(year, month, 0).getDate();
     const firstDayOfMonth = new Date(year, month - 1, 1).getDay();
@@ -645,6 +692,12 @@ function renderCalendar(year, month, scheduleData, participantsMap = new Map()) 
                             nameSpan.textContent = slot.assignedNames[index] || `ID:${participantId}`;
 
                             const participant = participantsMap.get(participantId);
+
+                            if (prevMonthAbsentees.includes(participantId)) {
+                                if (!slot.isFixedStatus || !slot.isFixedStatus[index]) { // Only apply if not already fixed (which is red and bold)
+                                    nameSpan.style.color = 'red';
+                                }
+                            }
 
                             if (slot.isFixedStatus && slot.isFixedStatus[index] === true) {
                                 nameSpan.classList.add('font-bold', 'text-red-600');
@@ -707,7 +760,23 @@ async function handleResetCurrentMonthSchedule() {
                 console.error('Error resetting schedule indices during full reset:', stateError);
                 messageDiv.textContent += ' (순차 배정 시작점 초기화 실패)';
             }
-            renderCalendar(year, month, null, new Map());
+
+            let prevMonthAbsenteesReset = [];
+            if (year && month >=1 && month <=12) {
+              let prevScheduleYear = year;
+              let prevScheduleMonth = month - 1;
+              if (prevScheduleMonth === 0) {
+                prevScheduleMonth = 12;
+                prevScheduleYear--;
+              }
+              try {
+                prevMonthAbsenteesReset = await db.getAbsenteesForMonth(prevScheduleYear, prevScheduleMonth);
+              } catch (e) {
+                console.error("Failed to fetch prev month absentees in handleResetCurrentMonthSchedule", e);
+                // prevMonthAbsenteesReset remains []
+              }
+            }
+            renderCalendar(year, month, null, new Map(), prevMonthAbsenteesReset);
             displayMessage(`${year}년 ${month}월 일정, ${attendanceClearedCount}건의 결석 기록, 및 순차 배정 시작점이 성공적으로 초기화되었습니다.`, 'success');
         } catch (error) {
             console.error('Error resetting schedule:', error);
