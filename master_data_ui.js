@@ -39,7 +39,6 @@ export function renderMasterDataView(containerId, onAdd, onExcelUpload, onDelete
                 <div class="form-group">
                     <label for="copyType" class="text-sm font-medium text-slate-700">복사구분:</label>
                     <select id="copyType" name="copyType" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3">
-                        <option value="">선택안함</option>
                         <option value="소복사">소복사</option>
                         <option value="대복사">대복사</option>
                     </select>
@@ -126,7 +125,6 @@ export function renderMasterDataView(containerId, onAdd, onExcelUpload, onDelete
                 <div class="form-group">
                     <label for="editCopyType" class="text-sm font-medium text-slate-700">복사구분:</label>
                     <select id="editCopyType" name="copyType" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3">
-                        <option value="">선택안함</option>
                         <option value="소복사">소복사</option>
                         <option value="대복사">대복사</option>
                     </select>
@@ -302,7 +300,7 @@ export function populateEditForm(participant) {
     document.getElementById('editName').value = participant.name;
     document.getElementById('editGender').value = participant.gender;
     document.getElementById('editType').value = participant.type;
-    document.getElementById('editCopyType').value = participant.copyType || '';
+    document.getElementById('editCopyType').value = participant.copyType || '소복사';
     document.getElementById('editStudentPhone').value = participant.studentPhone || '';
     document.getElementById('editParentPhone').value = participant.parentPhone || '';
     document.getElementById('editParticipantModal').classList.add('active');

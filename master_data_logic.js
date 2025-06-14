@@ -54,6 +54,10 @@ async function handleAddParticipant(participant) {
         if (participant.parentPhone) {
             participant.parentPhone = participant.parentPhone.replace(/-/g, '');
         }
+        // Ensure copyType is valid, defaulting to '소복사'
+        if (participant.copyType !== '소복사' && participant.copyType !== '대복사') {
+            participant.copyType = '소복사';
+        }
         await db.addParticipant(participant);
         await loadAndRenderParticipants(true);
         alert('성공적으로 추가되었습니다.');
@@ -79,7 +83,7 @@ async function handleSaveEditParticipant(event) {
         name: formData.get('name'),
         gender: formData.get('gender'),
         type: formData.get('type'),
-        copyType: formData.get('copyType') || '', // 복사구분
+        copyType: formData.get('copyType') || '소복사', // Default to 소복사
         isActive: true // Assuming isActive is always true or handle it in form
     };
 
@@ -233,7 +237,15 @@ function handleExcelUpload(file) {
                 const name = row[nameIndex] ? row[nameIndex].toString().trim() : null;
                 const gender = row[genderIndex] ? row[genderIndex].toString().trim() : null;
                 const type = row[typeIndex] ? row[typeIndex].toString().trim() : null;
-                const copyType = copyTypeIndex !== -1 && row[copyTypeIndex] ? row[copyTypeIndex].toString().trim() : ''; // 복사구분
+
+                let copyTypeExcel = '소복사'; // Default to 소복사
+                if (copyTypeIndex !== -1 && row[copyTypeIndex]) {
+                    const rawCopyType = row[copyTypeIndex].toString().trim();
+                    if (rawCopyType === '대복사') { // Only explicitly set if '대복사'
+                        copyTypeExcel = '대복사';
+                    }
+                    // Any other value (including empty or '소복사' itself) defaults/remains '소복사'
+                }
 
                 let studentPhone = null;
                 if (studentPhoneIndex !== -1 && row[studentPhoneIndex]) {
@@ -265,7 +277,7 @@ function handleExcelUpload(file) {
                     name,
                     gender,
                     type,
-                    copyType, // 복사구분
+                    copyType: copyTypeExcel, // Use the processed copyTypeExcel
                     studentPhone: studentPhone || '',
                     parentPhone: parentPhone || '',
                     isActive: true
