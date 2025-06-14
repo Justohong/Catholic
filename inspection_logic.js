@@ -11,11 +11,15 @@ import * as db from './db.js';
 // 임시로 inspection_logic.js 내에 TIME_SLOT_CONFIG와 CORE_CATEGORIES 정의 (원래는 schedule_generation_logic.js에서 가져와야 함)
 const TIME_SLOT_CONFIG = {
     'Mon': [{ time: '06:00', type: 'elementary', sequential: true, categoryKey: 'elementary_6am' }],
-    'Tue': [{ time: '17:00', type: 'elementary', random: true, categoryKey: 'elementary_random' }],
+    'Tue': [{ time: '19:30', type: 'elementary', random: true, categoryKey: 'elementary_random' }], // Changed from 17:00
     'Wed': [{ time: '06:00', type: 'elementary', sequential: true, categoryKey: 'elementary_6am' }],
-    'Thu': [{ time: '17:00', type: 'elementary', random: true, categoryKey: 'elementary_random' }],
+    'Thu': [{ time: '19:30', type: 'elementary', random: true, categoryKey: 'elementary_random' }], // Changed from 17:00
     'Fri': [{ time: '06:00', type: 'elementary', sequential: true, categoryKey: 'elementary_6am' }],
-    'Sat': [{ time: '16:00', type: 'elementary', random: true, categoryKey: 'elementary_random' }, { time: '18:00', type: 'middle', random: true, categoryKey: 'middle_random' }],
+    'Sat': [
+        { time: '10:00', type: 'elementary', random: true, categoryKey: 'elementary_random' }, // Added
+        { time: '16:00', type: 'elementary', random: true, categoryKey: 'elementary_random' },
+        { time: '18:00', type: 'middle', random: true, categoryKey: 'middle_random' }
+    ],
     'Sun': [{ time: '07:00', type: 'middle', sequential: true, categoryKey: 'middle_7am' }, { time: '09:00', type: 'middle', random: true, categoryKey: 'middle_random' }, { time: '11:00', type: 'middle', random: true, categoryKey: 'middle_random' }, { time: '18:00', type: 'middle', random: true, categoryKey: 'middle_random' }]
 };
 const CORE_CATEGORIES = { // schedule_generation_logic.js와 동일하게 정의
@@ -32,6 +36,7 @@ function getAllCategoryKeys() {
     // Add known fallback keys if they are distinct categories
     keys.add('elementary_random_fallback');
     keys.add('middle_random_fallback');
+    keys.add('elementary_vacation_10am'); // Explicitly add vacation category key
     return Array.from(keys);
 }
 
@@ -173,6 +178,8 @@ export async function analyzeScheduleForInspection(year, month) {
     const el_fall = 'elementary_random_fallback';
     const mid_fall = 'middle_random_fallback';
 
+    const explicitlyAggregatedKeys = new Set([el_6am, mid_7am, el_rand, mid_rand, el_fall, mid_fall]);
+
     for (const participantAnalysis of finalAnalysis) {
         participantAnalysis.aggregatedByCategory = new Map();
 
@@ -195,9 +202,19 @@ export async function analyzeScheduleForInspection(year, month) {
             count: el_fall_data.count + mid_fall_data.count,
             fixedCount: el_fall_data.fixedCount + mid_fall_data.fixedCount
         });
+
+        let otherCount = 0;
+        let otherFixedCount = 0;
+        for (const [categoryKey, stats] of participantAnalysis.assignmentsByCategory.entries()) {
+            if (!explicitlyAggregatedKeys.has(categoryKey)) {
+                otherCount += stats.count;
+                otherFixedCount += stats.fixedCount;
+            }
+        }
+        participantAnalysis.aggregatedByCategory.set('기타', { count: otherCount, fixedCount: otherFixedCount });
     }
 
-    const newAggregatedCategoryKeys = ['새벽', '1차랜덤', '2차랜덤'];
+    const newAggregatedCategoryKeys = ['새벽', '1차랜덤', '2차랜덤', '기타'];
 
     return {
         analysis: finalAnalysis,
