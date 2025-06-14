@@ -162,7 +162,61 @@ export function initScheduleGenerationView(viewElementId) {
         currentInspectBtn.addEventListener('click', handleInspectScheduleButtonClick);
     }
 
+    // Add Vacation Period Button
+    const actionButtonsWrapper = view.querySelector('.action-buttons-wrapper');
+    if (actionButtonsWrapper) {
+        let vacationBtn = view.querySelector('#vacation-period-btn');
+        if (!vacationBtn) {
+            vacationBtn = document.createElement('button');
+            vacationBtn.id = 'vacation-period-btn';
+            vacationBtn.className = 'btn btn-icon text-slate-700 hover:text-sky-600 hover:bg-slate-100 p-2';
+            vacationBtn.title = '방학 기간 설정';
+            vacationBtn.innerHTML = '<i data-lucide="calendar-heart" class="h-5 w-5"></i>';
+
+            const inspectScheduleBtn = actionButtonsWrapper.querySelector('#inspect-schedule-btn');
+            if (inspectScheduleBtn && inspectScheduleBtn.parentNode === actionButtonsWrapper) {
+                actionButtonsWrapper.insertBefore(vacationBtn, inspectScheduleBtn);
+            } else {
+                actionButtonsWrapper.insertBefore(vacationBtn, actionButtonsWrapper.firstChild); // Fallback if inspect button isn't there or structure changed
+            }
+        }
+        vacationBtn.removeEventListener('click', handleSetVacationPeriod); // Remove first to be safe
+        vacationBtn.addEventListener('click', handleSetVacationPeriod);
+    }
+
+
     lucide.createIcons();
+}
+
+async function handleSetVacationPeriod() {
+    const startDateStr = prompt("방학 시작일을 입력하세요 (YYYY-MM-DD):");
+    if (!startDateStr) return; // User cancelled
+
+    const endDateStr = prompt("방학 종료일을 입력하세요 (YYYY-MM-DD):");
+    if (!endDateStr) return; // User cancelled
+
+    // Basic validation
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(startDateStr) || !dateRegex.test(endDateStr)) {
+        alert("날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요.");
+        return;
+    }
+
+    const startDate = new Date(startDateStr);
+    const endDate = new Date(endDateStr);
+
+    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+        alert("유효하지 않은 날짜입니다.");
+        return;
+    }
+    if (endDate < startDate) {
+        alert("종료일은 시작일보다 빠를 수 없습니다.");
+        return;
+    }
+
+    sessionStorage.setItem('vacationStartDate', startDateStr);
+    sessionStorage.setItem('vacationEndDate', endDateStr);
+    alert(`방학 기간이 ${startDateStr}부터 ${endDateStr}까지로 설정되었습니다. 다음 일정 생성 시 적용됩니다.`);
 }
 
 async function loadScheduleDataForInputs() {
@@ -178,14 +232,18 @@ async function loadScheduleDataForInputs() {
     calendarDisplay.innerHTML = ''; // Clear previous calendar
     try {
         const scheduleObject = await db.getSchedule(year, month);
+        const allParticipants = await db.getAllParticipants();
+        const participantsMap = new Map();
+        allParticipants.forEach(p => participantsMap.set(p.id, p));
+
         if (scheduleObject && scheduleObject.data && scheduleObject.data.length > 0) {
-            renderCalendar(year, month, scheduleObject.data);
+            renderCalendar(year, month, scheduleObject.data, participantsMap);
         } else {
-            renderCalendar(year, month, null); // Render empty calendar for the selected period
+            renderCalendar(year, month, null, participantsMap); // Render empty calendar for the selected period
         }
     } catch (error) {
         console.error("Failed to load schedule for inputs:", error);
-        renderCalendar(year, month, null); // Render empty calendar on error
+        renderCalendar(year, month, null, new Map()); // Render empty calendar on error
     }
     if (typeof lucide !== 'undefined') lucide.createIcons();
 }
@@ -311,16 +369,20 @@ async function handleViewExistingSchedule() {
         sessionStorage.setItem(SCHEDULE_YEAR_KEY, year.toString());
         sessionStorage.setItem(SCHEDULE_MONTH_KEY, month.toString());
         const scheduleObject = await db.getSchedule(year, month);
+        const allParticipants = await db.getAllParticipants();
+        const participantsMap = new Map();
+        allParticipants.forEach(p => participantsMap.set(p.id, p));
+
         if (scheduleObject && scheduleObject.data && scheduleObject.data.length > 0) {
-            renderCalendar(year, month, scheduleObject.data);
+            renderCalendar(year, month, scheduleObject.data, participantsMap);
             displayMessage(`기존 ${year}년 ${month}월 일정을 불러왔습니다.`, 'info');
         } else {
-            renderCalendar(year, month, null);
+            renderCalendar(year, month, null, participantsMap);
             displayMessage('저장된 기존 일정이 없습니다. 새로 생성할 수 있습니다.', 'info');
         }
     } catch (error) {
         console.error("Failed to load existing schedule:", error);
-        renderCalendar(year, month, null);
+        renderCalendar(year, month, null, new Map());
         displayMessage('기존 일정 로드 중 오류 발생.', 'error');
     }
     if (typeof lucide !== 'undefined') lucide.createIcons();
@@ -441,16 +503,20 @@ async function loadInitialScheduleForCurrentDate() {
     if (year && month) {
         try {
             const scheduleObject = await db.getSchedule(year, month);
+            const allParticipants = await db.getAllParticipants();
+            const participantsMap = new Map();
+            allParticipants.forEach(p => participantsMap.set(p.id, p));
+
             if (scheduleObject && scheduleObject.data) {
-                renderCalendar(year, month, scheduleObject.data);
+                renderCalendar(year, month, scheduleObject.data, participantsMap);
                 displayMessage('기존 생성된 일정을 불러왔습니다.', 'info');
             } else {
-                renderCalendar(year, month, null);
+                renderCalendar(year, month, null, participantsMap);
                 displayMessage('선택한 년/월의 저장된 일정이 없거나 비어있습니다. 새로 생성하세요.', 'info');
             }
         } catch (error) {
             console.error("Failed to load initial schedule:", error);
-            renderCalendar(year, month, null);
+            renderCalendar(year, month, null, new Map());
             displayMessage('일정 로드 중 오류 발생.', 'error');
         }
     }
@@ -511,14 +577,17 @@ async function handleGenerateSchedule() {
     displayMessage('일정을 생성 중입니다...', 'info');
     try {
         const resultObject = await logic.generateSchedule(year, month);
-        renderCalendar(year, month, resultObject.schedule);
+        const allParticipants = await db.getAllParticipants();
+        const participantsMap = new Map();
+        allParticipants.forEach(p => participantsMap.set(p.id, p));
+        renderCalendar(year, month, resultObject.schedule, participantsMap);
         sessionStorage.setItem(SCHEDULE_YEAR_KEY, year.toString());
         sessionStorage.setItem(SCHEDULE_MONTH_KEY, month.toString());
         displayMessage('일정이 성공적으로 생성되었습니다.', 'success');
     } catch (error) {
         console.error("Schedule generation failed:", error);
         displayMessage(`일정 생성 실패: ${error.message}`, 'error');
-        renderCalendar(year, month, null);
+        renderCalendar(year, month, null, new Map());
     } finally {
         generateBtn.disabled = false;
         generateBtn.innerHTML = '<i data-lucide="calendar-plus" class="mr-2 h-4 w-4"></i>일정 생성';
@@ -526,7 +595,7 @@ async function handleGenerateSchedule() {
     }
 }
 
-function renderCalendar(year, month, scheduleData) {
+function renderCalendar(year, month, scheduleData, participantsMap = new Map()) {
     calendarDisplay.innerHTML = '';
     const daysInMonth = new Date(year, month, 0).getDate();
     const firstDayOfMonth = new Date(year, month - 1, 1).getDay();
@@ -574,9 +643,15 @@ function renderCalendar(year, month, scheduleData) {
                         slot.assigned.forEach((participantId, index) => {
                             const nameSpan = document.createElement('span');
                             nameSpan.textContent = slot.assignedNames[index] || `ID:${participantId}`;
+
+                            const participant = participantsMap.get(participantId);
+
                             if (slot.isFixedStatus && slot.isFixedStatus[index] === true) {
                                 nameSpan.classList.add('font-bold', 'text-red-600');
+                            } else if (participant && participant.copyType === '소복사') {
+                                nameSpan.classList.add('text-blue-600', 'font-semibold');
                             }
+
                             if (slot.assigned.length > 1 && index < slot.assigned.length - 1) {
                                 nameSpan.textContent += ', ';
                             }
@@ -632,7 +707,7 @@ async function handleResetCurrentMonthSchedule() {
                 console.error('Error resetting schedule indices during full reset:', stateError);
                 messageDiv.textContent += ' (순차 배정 시작점 초기화 실패)';
             }
-            renderCalendar(year, month, null);
+            renderCalendar(year, month, null, new Map());
             displayMessage(`${year}년 ${month}월 일정, ${attendanceClearedCount}건의 결석 기록, 및 순차 배정 시작점이 성공적으로 초기화되었습니다.`, 'success');
         } catch (error) {
             console.error('Error resetting schedule:', error);

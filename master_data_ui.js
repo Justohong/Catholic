@@ -37,6 +37,14 @@ export function renderMasterDataView(containerId, onAdd, onExcelUpload, onDelete
                     </select>
                 </div>
                 <div class="form-group">
+                    <label for="copyType" class="text-sm font-medium text-slate-700">복사구분:</label>
+                    <select id="copyType" name="copyType" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3">
+                        <option value="">선택안함</option>
+                        <option value="소복사">소복사</option>
+                        <option value="대복사">대복사</option>
+                    </select>
+                </div>
+                <div class="form-group">
                     <label for="studentPhone" class="text-sm font-medium text-slate-700">학생 연락처:</label>
                     <input type="tel" id="studentPhone" name="studentPhone" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3" placeholder="하이픈 없이 숫자만">
                 </div>
@@ -53,14 +61,22 @@ export function renderMasterDataView(containerId, onAdd, onExcelUpload, onDelete
         <div class="mb-6 p-4 border border-slate-200 rounded-lg bg-slate-50">
             <h3 class="text-lg font-medium mb-3 text-sky-600">엑셀로 일괄 업로드</h3>
             <input type="file" id="excelFile" accept="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,.xlsx,.xls" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-sky-100 file:text-sky-700 hover:file:bg-sky-200 mb-2">
-            <button id="uploadExcelBtn" class="btn btn-primary w-full sm:w-auto">
-                <i data-lucide="file-up" class="mr-2 h-5 w-5"></i>엑셀 업로드
-            </button>
+            <div class="flex">
+                <button id="uploadExcelBtn" class="btn btn-primary w-full sm:w-auto">
+                    <i data-lucide="file-up" class="mr-2 h-5 w-5"></i>엑셀 업로드
+                </button>
+                <button id="downloadExcelTemplateBtn" class="btn btn-secondary w-full sm:w-auto ml-2">
+                    <i data-lucide="file-spreadsheet" class="mr-2 h-5 w-5"></i>엑셀양식 다운로드
+                </button>
+            </div>
         </div>
         
         <div class="flex justify-between items-center mb-4">
             <h3 class="text-lg font-medium text-sky-600">등록된 정보 목록</h3>
             <div class="flex space-x-2">
+                <button id="filterSmallCopyBtn" class="btn btn-secondary">
+                    <i data-lucide="users" class="mr-2 h-5 w-5"></i>소복사 관리
+                </button>
                 <button id="deleteSelectedBtn" class="btn btn-danger" disabled>
                     <i data-lucide="trash-2" class="mr-2 h-5 w-5"></i>선택 항목 삭제
                 </button>
@@ -107,6 +123,14 @@ export function renderMasterDataView(containerId, onAdd, onExcelUpload, onDelete
                             <option value="중등">중등</option>
                         </select>
                     </div>
+                <div class="form-group">
+                    <label for="editCopyType" class="text-sm font-medium text-slate-700">복사구분:</label>
+                    <select id="editCopyType" name="copyType" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3">
+                        <option value="">선택안함</option>
+                        <option value="소복사">소복사</option>
+                        <option value="대복사">대복사</option>
+                    </select>
+                </div>
                 <div class="form-group">
                     <label for="editStudentPhone" class="text-sm font-medium text-slate-700">학생 연락처:</label>
                     <input type="tel" id="editStudentPhone" name="studentPhone" class="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-sky-500 focus:ring-sky-500 sm:text-sm py-2 px-3" placeholder="하이픈 없이 숫자만">
@@ -221,6 +245,7 @@ export function renderMasterDataTable(participants, onEdit, onDelete, onSelectio
                     <th scope="col" class="p-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">이름</th>
                     <th scope="col" class="p-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">성별</th>
                     <th scope="col" class="p-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">초중구분</th>
+                    <th scope="col" class="p-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">복사구분</th>
                     <th scope="col" class="p-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">학생 연락처</th>
                     <th scope="col" class="p-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">부모 연락처</th>
                     <th scope="col" class="p-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">작업</th>
@@ -235,6 +260,7 @@ export function renderMasterDataTable(participants, onEdit, onDelete, onSelectio
                         <td class="p-3 whitespace-nowrap text-sm text-slate-700">${p.name}</td>
                         <td class="p-3 whitespace-nowrap text-sm text-slate-700">${p.gender}</td>
                         <td class="p-3 whitespace-nowrap text-sm text-slate-700">${p.type}</td>
+                        <td class="p-3 whitespace-nowrap text-sm text-slate-700">${p.copyType || '-'}</td>
                         <td class="p-3 whitespace-nowrap text-sm text-slate-700">${p.studentPhone || '-'}</td>
                         <td class="p-3 whitespace-nowrap text-sm text-slate-700">${p.parentPhone || '-'}</td>
                         <td class="p-3 whitespace-nowrap text-sm font-medium space-x-2">
@@ -276,6 +302,7 @@ export function populateEditForm(participant) {
     document.getElementById('editName').value = participant.name;
     document.getElementById('editGender').value = participant.gender;
     document.getElementById('editType').value = participant.type;
+    document.getElementById('editCopyType').value = participant.copyType || '';
     document.getElementById('editStudentPhone').value = participant.studentPhone || '';
     document.getElementById('editParentPhone').value = participant.parentPhone || '';
     document.getElementById('editParticipantModal').classList.add('active');
