@@ -10,6 +10,7 @@ const TIME_SLOT_CONFIG = {
     'Sun': [{ time: '07:00', type: 'middle', sequential: true, categoryKey: 'middle_7am' }, { time: '09:00', type: 'middle', random: true, categoryKey: 'middle_random' }, { time: '11:00', type: 'middle', random: true, categoryKey: 'middle_random' }, { time: '18:00', type: 'middle', random: true, categoryKey: 'middle_random' }]
 };
 const DAYS_OF_WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const CORE_CATEGORIES_LIST = ['elementary_6am', 'middle_7am'];
 
 function getWeekOfMonth(date) {
   return Math.floor((date.getDate() - 1) / 7);
@@ -19,6 +20,12 @@ async function getParticipantsMap(participantsList) {
     const map = new Map();
     participantsList.forEach(p => map.set(p.id, p));
     return map;
+}
+
+function getEnglishParticipantType(participantType) {
+    if (participantType === '초등') return 'elementary';
+    if (participantType === '중등') return 'middle';
+    return participantType;
 }
 
 function getEnhancedParticipantData(participant, slotInfo = null, prevMonthAssignmentCounts, currentMonthAssignmentCounts, coreCategoriesMap, calculatedPrevTotalCounts) {
@@ -32,8 +39,8 @@ function getEnhancedParticipantData(participant, slotInfo = null, prevMonthAssig
     const currentCategoryCount = currentMonthAssignmentCounts.get(participantId)?.get(slotInfo?.categoryKey) || 0;
     let crossPreferenceScore = 0;
     if (slotInfo?.categoryKey) {
-        const participantTypeInitial = participant.type === '초등' ? 'elementary' : 'middle';
-        const coreCategoryForType = coreCategoriesMap[participantTypeInitial];
+        const participantEngType = getEnglishParticipantType(participant.type);
+        const coreCategoryForType = coreCategoriesMap[participantEngType];
         if (slotInfo.categoryKey === coreCategoryForType) {
             if ((prevCountsForParticipant.get(coreCategoryForType) || 0) > 0) crossPreferenceScore = -1;
         } else {
@@ -41,18 +48,6 @@ function getEnhancedParticipantData(participant, slotInfo = null, prevMonthAssig
         }
     }
     return { id: participantId, gender: participant.gender, obj: participant, prevCategoryCount, prevTotalCount, currentCategoryCount, crossPreferenceScore };
-}
-
-function compareB1Participants(pA, pB, calculatedPrevTotalCounts, prevMonthAssignmentCounts, CORE_CATEGORIES) {
-    const prevTotalA = calculatedPrevTotalCounts.get(pA.id) || 0;
-    const prevTotalB = calculatedPrevTotalCounts.get(pB.id) || 0;
-    if (prevTotalA !== prevTotalB) return prevTotalA - prevTotalB;
-    const coreCategoryA = pA.type === '초등' ? CORE_CATEGORIES.elementary : CORE_CATEGORIES.middle;
-    const coreCategoryB = pB.type === '초등' ? CORE_CATEGORIES.elementary : CORE_CATEGORIES.middle;
-    const prevCoreCountA = prevMonthAssignmentCounts.get(pA.id)?.get(coreCategoryA) || 0;
-    const prevCoreCountB = prevMonthAssignmentCounts.get(pB.id)?.get(coreCategoryB) || 0;
-    if (prevCoreCountA !== prevCoreCountB) return prevCoreCountA - prevCoreCountB;
-    return pA.id - pB.id;
 }
 
 function compareEnhancedParticipants(aData, bData, prioritizeZeroCurrentMonthTotal = false, assignmentCountsForSort = null, useRandomTieBreaker = false) {
@@ -76,12 +71,11 @@ function compareEnhancedParticipants(aData, bData, prioritizeZeroCurrentMonthTot
     return aData.id - bData.id;
 }
 
-// Helper function to check if pairing two participants is allowed
 function isPairingAllowed(p1_id, p2_id, participantsMap) {
     const p1_copyType = participantsMap.get(p1_id)?.copyType;
     const p2_copyType = participantsMap.get(p2_id)?.copyType;
     if (p1_copyType === '소복사' && p2_copyType === '소복사') {
-        return false; // Pairing of two '소복사' is not allowed
+        return false;
     }
     return true;
 }
@@ -96,20 +90,17 @@ export async function generateSchedule(year, month) {
 
     if (vacationStartDateStr && vacationEndDateStr) {
         vacationStartDate = new Date(vacationStartDateStr);
-        vacationEndDate = new Date(vacationEndDateStr); // Corrected from endDateStr
-         // Clear time part for accurate date comparison
+        vacationEndDate = new Date(vacationEndDateStr);
         if (vacationStartDate) vacationStartDate.setHours(0,0,0,0);
         if (vacationEndDate) vacationEndDate.setHours(0,0,0,0);
-
-        // Validate if the vacation period is relevant for the current schedule generation month
         const firstDayOfCurrentMonth = new Date(year, month - 1, 1);
         const lastDayOfCurrentMonth = new Date(year, month, 0);
         if (vacationEndDate < firstDayOfCurrentMonth || vacationStartDate > lastDayOfCurrentMonth) {
-            vacationStartDate = null; // Vacation period is not in this month
+            vacationStartDate = null;
             vacationEndDate = null;
-            console.log("Vacation period is outside the current month.");
+            // console.log("Vacation period is outside the current month.");
         } else {
-            console.log(`Vacation period found: ${vacationStartDateStr} to ${vacationEndDateStr}`);
+            // console.log(`Vacation period found: ${vacationStartDateStr} to ${vacationEndDateStr}`);
         }
     }
 
@@ -120,7 +111,8 @@ export async function generateSchedule(year, month) {
     }
     const participantsMap = await getParticipantsMap(participants);
     const prevMonthAssignmentCounts = await db.getPreviousMonthAssignmentCounts(year, month);
-    const CORE_CATEGORIES = { elementary: 'elementary_6am', middle: 'middle_7am' };
+    const CORE_CATEGORIES_MAP = { elementary: 'elementary_6am', middle: 'middle_7am' };
+
     const calculatePrevTotalCount = (participantId) => {
         let total = 0; const counts = prevMonthAssignmentCounts.get(participantId);
         if (counts) { for (const count of counts.values()) total += count; } return total;
@@ -130,275 +122,588 @@ export async function generateSchedule(year, month) {
     const prevMonthDateForAbsenteeFetch = new Date(year, month - 1, 0);
     const prevMonthAbsenteesList = await db.getAbsenteesForMonth(prevMonthDateForAbsenteeFetch.getFullYear(), prevMonthDateForAbsenteeFetch.getMonth() + 1);
     const prevMonthAbsentees = new Set(prevMonthAbsenteesList);
-    const fixedAbsenteeAssignments = new Map(); prevMonthAbsentees.forEach(id => fixedAbsenteeAssignments.set(id, 0));
-    const daysInMonth = new Date(year, month, 0).getDate();
-    let totalCoreSlots = { elementary_6am: 0, middle_7am: 0 };
-    for (let dayIter = 1; dayIter <= daysInMonth; dayIter++) {
-        const slotsForDayIter = TIME_SLOT_CONFIG[DAYS_OF_WEEK[new Date(year, month - 1, dayIter).getDay()]] || [];
-        slotsForDayIter.forEach(slot => {
-            if (slot.categoryKey === CORE_CATEGORIES.elementary) totalCoreSlots.elementary_6am++;
-            else if (slot.categoryKey === CORE_CATEGORIES.middle) totalCoreSlots.middle_7am++;
-        });
-    }
-    const absenteesForSecondRandomRound = new Set();
-    const elementaryAbsentees = new Set(); const middleAbsentees = new Set();
-    if (prevMonthAbsentees.size > 0) {
-        participants.forEach(p => {
-            if (prevMonthAbsentees.has(p.id)) {
-                if (p.type === '초등') elementaryAbsentees.add(p.id); else if (p.type === '중등') middleAbsentees.add(p.id);
-            }
-        });
-    }
-    let elementaryTargetCoreAssignments = 2;
-    if (elementaryAbsentees.size > 0 && (elementaryAbsentees.size * 2) > totalCoreSlots.elementary_6am) {
-        elementaryTargetCoreAssignments = 1; elementaryAbsentees.forEach(id => absenteesForSecondRandomRound.add(id));
-    }
-    let middleTargetCoreAssignments = 2;
-    if (middleAbsentees.size > 0 && (middleAbsentees.size * 2) > totalCoreSlots.middle_7am) {
-        middleTargetCoreAssignments = 1; middleAbsentees.forEach(id => absenteesForSecondRandomRound.add(id));
-    }
-    let assignedCoreSlotsCount = { elementary_6am: 0, middle_7am: 0 };
-    const absenteesAssignedInMainLoop = new Set();
-    const activeParticipants = participants.filter(p => p.isActive);
-    let generalParticipantsForB1 = activeParticipants.filter(p => !prevMonthAbsentees.has(p.id));
-    generalParticipantsForB1.sort((a,b) => compareB1Participants(a,b,calculatedPrevTotalCounts, prevMonthAssignmentCounts, CORE_CATEGORIES));
-    const b1CoreSelectedElementary = []; const b1CoreSelectedMiddle = [];
-    for (const p of generalParticipantsForB1) {
-        if (p.type === '초등' && b1CoreSelectedElementary.length < totalCoreSlots.elementary_6am * 2) b1CoreSelectedElementary.push(p);
-        else if (p.type === '중등' && b1CoreSelectedMiddle.length < totalCoreSlots.middle_7am * 2) b1CoreSelectedMiddle.push(p);
-    }
-    if (b1CoreSelectedElementary.length > 1) b1CoreSelectedElementary.sort(() => Math.random() - 0.5);
-    if (b1CoreSelectedMiddle.length > 1) b1CoreSelectedMiddle.sort(() => Math.random() - 0.5);
-    console.log("B-1 Pre-selection (shuffled): Elementary candidates:", b1CoreSelectedElementary.length, "Middle candidates:", b1CoreSelectedMiddle.length);
 
-    let scheduleData = [];
-    const assignmentCounts = new Map();
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const activeParticipants = participants.filter(p => p.isActive);
+
+    let assignmentCounts = new Map();
     const uniqueCategoryKeys = new Set();
     Object.values(TIME_SLOT_CONFIG).flat().forEach(slot => { if (slot.categoryKey) uniqueCategoryKeys.add(slot.categoryKey); });
-    uniqueCategoryKeys.add('elementary_random_fallback'); uniqueCategoryKeys.add('middle_random_fallback');
-    uniqueCategoryKeys.add('elementary_vacation_10am'); // Add new vacation category key
+    uniqueCategoryKeys.add('elementary_random_fallback');
+    uniqueCategoryKeys.add('middle_random_fallback');
+    uniqueCategoryKeys.add('elementary_vacation_10am');
     participants.forEach(p => {
         const categoryMap = new Map(); uniqueCategoryKeys.forEach(key => categoryMap.set(key, 0));
         categoryMap.set('total', 0); assignmentCounts.set(p.id, categoryMap);
     });
-    const participantWeeklyAssignments = new Map(); activeParticipants.forEach(p => participantWeeklyAssignments.set(p.id, new Set()));
-    const absenteeFixedWeeklyAssignments = new Map(); activeParticipants.forEach(p => absenteeFixedWeeklyAssignments.set(p.id, new Set()));
+
+    let participantWeeklyAssignments = new Map();
+    activeParticipants.forEach(p => participantWeeklyAssignments.set(p.id, new Set()));
+
+    let scheduleData = [];
+
+    const coreSlotInstances = [];
+    for (let day = 1; day <= daysInMonth; day++) {
+        const currentDate = new Date(year, month - 1, day);
+        const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayOfWeekShort = DAYS_OF_WEEK[currentDate.getDay()];
+        const slotsForDay = TIME_SLOT_CONFIG[dayOfWeekShort] || [];
+        for (const slotInfo of slotsForDay) {
+            if (CORE_CATEGORIES_LIST.includes(slotInfo.categoryKey)) {
+                coreSlotInstances.push({
+                    date: dateStr,
+                    dayOfWeek: dayOfWeekShort,
+                    time: slotInfo.time,
+                    type: slotInfo.type,
+                    categoryKey: slotInfo.categoryKey,
+                    originalSlotInfo: { ...slotInfo },
+                    assigned: [],
+                    assignedNames: ['미배정'],
+                    isFixedStatus: [false, false]
+                });
+            }
+        }
+    }
+    coreSlotInstances.sort((a, b) => {
+        if (a.date < b.date) return -1;
+        if (a.date > b.date) return 1;
+        if (a.time < b.time) return -1;
+        if (a.time > b.time) return 1;
+        return 0;
+    });
+
+    const absenteesForCore = activeParticipants.filter(p => prevMonthAbsentees.has(p.id));
+    const regularsForCore = activeParticipants.filter(p => !prevMonthAbsentees.has(p.id));
+
+    const absenteeCoreAssignmentsCount = new Map();
+    absenteesForCore.forEach(p => absenteeCoreAssignmentsCount.set(p.id, 0));
+
+    const tempParticipantWeeklyAssignments = new Map();
+    activeParticipants.forEach(p => tempParticipantWeeklyAssignments.set(p.id, new Set()));
+    const tempDailyAssignments = new Map();
+
+    console.log(`Starting Phase 1: Assigning previous month absentees (${absenteesForCore.length}) to 2 core slots each.`);
+    for (const absentee of absenteesForCore) {
+        let assignmentsMadeForThisAbsentee = absenteeCoreAssignmentsCount.get(absentee.id) || 0;
+        if (assignmentsMadeForThisAbsentee >= 2) continue;
+
+        for (const slot of coreSlotInstances) {
+            // console.log(`Phase 1: Abs_Test: ${absentee.name} (ID ${absentee.id}), slot ${slot.categoryKey} on ${slot.date} ${slot.time}. CoreMade: ${assignmentsMadeForThisAbsentee}, TotalMade: ${(assignmentCounts.get(absentee.id)?.get('total') || 0)}`);
+            if (assignmentsMadeForThisAbsentee >= 2) break;
+
+            let skipReason = "";
+            const absenteeEnglishType = getEnglishParticipantType(absentee.type);
+            if (slot.assigned.length > 0) skipReason = "slot already assigned";
+            else if (slot.type !== absenteeEnglishType) skipReason = `slot type (${slot.type}) !== absentee type (${absentee.type} -> ${absenteeEnglishType})`;
+
+            if (skipReason) { /*console.log(`Phase 1: Abs_Test: SKIP slot for ${absentee.name} because: ${skipReason}`);*/ continue; }
+
+            const slotDateObj = new Date(slot.date);
+            const slotWeek = getWeekOfMonth(slotDateObj);
+
+            if (tempDailyAssignments.get(slot.date)?.has(absentee.id)) skipReason = "absentee already assigned this day";
+            else if (tempParticipantWeeklyAssignments.get(absentee.id)?.has(slotWeek)) skipReason = "absentee already assigned this week";
+
+            const absenteeTotalAssignments = assignmentCounts.get(absentee.id)?.get('total') || 0;
+            if (!skipReason && absenteeTotalAssignments >= MAX_ALLOWED_ASSIGNMENTS) skipReason = "absentee at MAX_ALLOWED_ASSIGNMENTS";
+            else if (!skipReason && absenteeTotalAssignments >= 2 && (tempParticipantWeeklyAssignments.get(absentee.id)?.has(slotWeek) || participantWeeklyAssignments.get(absentee.id)?.has(slotWeek))) skipReason = "absentee has >=2 total and already assigned this week";
+
+            if (skipReason) { /*console.log(`Phase 1: Abs_Test: SKIP slot for ${absentee.name} because: ${skipReason}`);*/ continue; }
+
+            let partnerFound = null;
+            // console.log(`Phase 1: Abs_Test: ${absentee.name} suitable for ${slot.date} ${slot.time}. Searching partner.`);
+
+            for (const regular of regularsForCore) {
+                let partnerSkipReason = "";
+                const regularEnglishType = getEnglishParticipantType(regular.type);
+                if (regular.id === absentee.id) partnerSkipReason = "is self";
+                else if (regularEnglishType !== slot.type) partnerSkipReason = `partner type (${regular.type} -> ${regularEnglishType}) !== slot type (${slot.type})`;
+                else if (tempDailyAssignments.get(slot.date)?.has(regular.id)) partnerSkipReason = "partner daily conflict";
+                else if (tempParticipantWeeklyAssignments.get(regular.id)?.has(slotWeek)) partnerSkipReason = "partner weekly conflict";
+                else if (!isPairingAllowed(absentee.id, regular.id, participantsMap)) partnerSkipReason = "pairing not allowed";
+                else {
+                    const regularTotalAssignments = assignmentCounts.get(regular.id)?.get('total') || 0;
+                    if (regularTotalAssignments >= MAX_ALLOWED_ASSIGNMENTS) partnerSkipReason = "partner at MAX_ALLOWED_ASSIGNMENTS";
+                    else if (regularTotalAssignments >= 2 && (tempParticipantWeeklyAssignments.get(regular.id)?.has(slotWeek) || participantWeeklyAssignments.get(regular.id)?.has(slotWeek))) partnerSkipReason = "partner has >=2 total and weekly conflict";
+                }
+                if (!partnerSkipReason) { partnerFound = regular; /*console.log(`Phase 1: Abs_Test: Found regular partner ${partnerFound.name} for ${absentee.name}`);*/ break; }
+                // else { console.log(`Phase 1: Abs_Test: Regular ${regular.name} skipped for ${absentee.name} because: ${partnerSkipReason}`); }
+            }
+            if (!partnerFound) {
+                // console.log(`Phase 1: Abs_Test: No regular partner for ${absentee.name}. Trying other absentees needing core.`);
+                for (const otherAbsentee of absenteesForCore) {
+                    let partnerSkipReason = "";
+                    const otherAbsenteeEnglishType = getEnglishParticipantType(otherAbsentee.type);
+                    if (otherAbsentee.id === absentee.id) partnerSkipReason = "is self";
+                    else if ((absenteeCoreAssignmentsCount.get(otherAbsentee.id) || 0) >= 2) partnerSkipReason = "other absentee already has 2 core";
+                    else if (otherAbsenteeEnglishType !== slot.type) partnerSkipReason = `partner type (${otherAbsentee.type} -> ${otherAbsenteeEnglishType}) !== slot type (${slot.type})`;
+                    else if (tempDailyAssignments.get(slot.date)?.has(otherAbsentee.id)) partnerSkipReason = "partner daily conflict";
+                    else if (tempParticipantWeeklyAssignments.get(otherAbsentee.id)?.has(slotWeek)) partnerSkipReason = "partner weekly conflict";
+                    else if (!isPairingAllowed(absentee.id, otherAbsentee.id, participantsMap)) partnerSkipReason = "pairing not allowed";
+                    else {
+                        const otherAbsenteeTotalAssignments = assignmentCounts.get(otherAbsentee.id)?.get('total') || 0;
+                        if (otherAbsenteeTotalAssignments >= MAX_ALLOWED_ASSIGNMENTS) partnerSkipReason = "partner at MAX_ALLOWED_ASSIGNMENTS";
+                        else if (otherAbsenteeTotalAssignments >= 2 && (tempParticipantWeeklyAssignments.get(otherAbsentee.id)?.has(slotWeek) || participantWeeklyAssignments.get(otherAbsentee.id)?.has(slotWeek))) partnerSkipReason = "partner has >=2 total and weekly conflict";
+                    }
+                    if (!partnerSkipReason) { partnerFound = otherAbsentee; /*console.log(`Phase 1: Abs_Test: Found other absentee (needing core) partner ${partnerFound.name} for ${absentee.name}`);*/ break; }
+                    // else { console.log(`Phase 1: Abs_Test: Other absentee (needing core) ${otherAbsentee.name} skipped for ${absentee.name} because: ${partnerSkipReason}`);}
+                }
+            }
+            if (!partnerFound) {
+                // console.log(`Phase 1: Abs_Test: No other absentee needing core for ${absentee.name}. Trying any other absentee (fallback).`);
+                for (const otherAbsentee of absenteesForCore) {
+                     let partnerSkipReason = "";
+                    const otherAbsenteeEnglishTypeFallback = getEnglishParticipantType(otherAbsentee.type);
+                    if (otherAbsentee.id === absentee.id) partnerSkipReason = "is self";
+                    else if (otherAbsenteeEnglishTypeFallback !== slot.type) partnerSkipReason = `partner type (${otherAbsentee.type} -> ${otherAbsenteeEnglishTypeFallback}) !== slot type (${slot.type})`;
+                    else if (tempDailyAssignments.get(slot.date)?.has(otherAbsentee.id)) partnerSkipReason = "partner daily conflict";
+                    else if (tempParticipantWeeklyAssignments.get(otherAbsentee.id)?.has(slotWeek)) partnerSkipReason = "partner weekly conflict";
+                    else if (!isPairingAllowed(absentee.id, otherAbsentee.id, participantsMap)) partnerSkipReason = "pairing not allowed";
+                     else {
+                        const otherAbsenteeTotalAssignments = assignmentCounts.get(otherAbsentee.id)?.get('total') || 0;
+                        if (otherAbsenteeTotalAssignments >= MAX_ALLOWED_ASSIGNMENTS) partnerSkipReason = "partner at MAX_ALLOWED_ASSIGNMENTS";
+                        else if (otherAbsenteeTotalAssignments >= 2 && (tempParticipantWeeklyAssignments.get(otherAbsentee.id)?.has(slotWeek) || participantWeeklyAssignments.get(otherAbsentee.id)?.has(slotWeek))) partnerSkipReason = "partner has >=2 total and weekly conflict";
+                    }
+                    if (!partnerSkipReason) { partnerFound = otherAbsentee; /*console.log(`Phase 1: Abs_Test: Found other absentee (fallback) partner ${partnerFound.name} for ${absentee.name}`);*/ break; }
+                    // else { console.log(`Phase 1: Abs_Test: Other absentee (fallback) ${otherAbsentee.name} skipped for ${absentee.name} because: ${partnerSkipReason}`);}
+                }
+            }
+            if (partnerFound) {
+                // console.log(`Phase 1: Abs_Test: SUCCESS - Assigning ${absentee.name} and ${partnerFound.name} to slot ${slot.date} ${slot.time}`);
+                slot.assigned = [absentee.id, partnerFound.id];
+                slot.assignedNames = [participantsMap.get(absentee.id)?.name, participantsMap.get(partnerFound.id)?.name];
+                const absenteeCounts = assignmentCounts.get(absentee.id);
+                absenteeCounts.set(slot.categoryKey, (absenteeCounts.get(slot.categoryKey) || 0) + 1);
+                absenteeCounts.set('total', (absenteeCounts.get('total') || 0) + 1);
+                const partnerCounts = assignmentCounts.get(partnerFound.id);
+                partnerCounts.set(slot.categoryKey, (partnerCounts.get(slot.categoryKey) || 0) + 1);
+                partnerCounts.set('total', (partnerCounts.get('total') || 0) + 1);
+                if (!tempDailyAssignments.has(slot.date)) tempDailyAssignments.set(slot.date, new Set());
+                tempDailyAssignments.get(slot.date).add(absentee.id);
+                tempDailyAssignments.get(slot.date).add(partnerFound.id);
+                tempParticipantWeeklyAssignments.get(absentee.id).add(slotWeek);
+                tempParticipantWeeklyAssignments.get(partnerFound.id).add(slotWeek);
+                absenteeCoreAssignmentsCount.set(absentee.id, (absenteeCoreAssignmentsCount.get(absentee.id) || 0) + 1);
+                assignmentsMadeForThisAbsentee++;
+                if (prevMonthAbsentees.has(partnerFound.id)) {
+                    absenteeCoreAssignmentsCount.set(partnerFound.id, (absenteeCoreAssignmentsCount.get(partnerFound.id) || 0) + 1);
+                }
+                // console.log(`Phase 1: Assigned ${participantsMap.get(absentee.id)?.name} and ${participantsMap.get(partnerFound.id)?.name} to ${slot.categoryKey} on ${slot.date} ${slot.time}`);
+            }
+        }
+        if (assignmentsMadeForThisAbsentee < 2) {
+            console.log(`Phase 1: Could only assign ${participantsMap.get(absentee.id)?.name} to ${assignmentsMadeForThisAbsentee} core slots.`);
+        }
+    }
+    console.log("Finished Phase 1.");
+
+    console.log("Starting Phase 2: Assigning selected regulars to remaining core slots.");
+    const remainingUnfilledCoreSlots = coreSlotInstances.filter(s => s.assigned.length === 0);
+    // console.log(`Phase 2: Found ${remainingUnfilledCoreSlots.length} remaining unfilled core slots.`);
+
+    if (remainingUnfilledCoreSlots.length > 0) {
+        const sortedRegularsForCore = [...regularsForCore].sort((pA, pB) => {
+            const pAEnglishType = getEnglishParticipantType(pA.type);
+            const pBEnglishType = getEnglishParticipantType(pB.type);
+            const coreCategoryKeyA = pAEnglishType === 'elementary' ? CORE_CATEGORIES_MAP.elementary : CORE_CATEGORIES_MAP.middle;
+            const coreCategoryKeyB = pBEnglishType === 'elementary' ? CORE_CATEGORIES_MAP.elementary : CORE_CATEGORIES_MAP.middle;
+            const prevCoreCountA = prevMonthAssignmentCounts.get(pA.id)?.get(coreCategoryKeyA) || 0;
+            const prevCoreCountB = prevMonthAssignmentCounts.get(pB.id)?.get(coreCategoryKeyB) || 0;
+            if (prevCoreCountA !== prevCoreCountB) return prevCoreCountA - prevCoreCountB;
+            const prevTotalCountA = calculatedPrevTotalCounts.get(pA.id) || 0;
+            const prevTotalCountB = calculatedPrevTotalCounts.get(pB.id) || 0;
+            if (prevTotalCountA !== prevTotalCountB) return prevTotalCountA - prevTotalCountB;
+            return Math.random() - 0.5;
+        });
+        const numSlotsToFill = remainingUnfilledCoreSlots.length;
+        let estimatedParticipantsNeeded = numSlotsToFill * 2;
+        estimatedParticipantsNeeded = Math.min(estimatedParticipantsNeeded + 10, sortedRegularsForCore.length);
+        let selectedRegularsList = sortedRegularsForCore.slice(0, estimatedParticipantsNeeded);
+        selectedRegularsList.sort(() => Math.random() - 0.5);
+        let regularsAssignedInPhase2 = new Set();
+
+        for (const slot of remainingUnfilledCoreSlots) {
+            // console.log(`Phase 2: Reg_Test: Slot ${slot.categoryKey} on ${slot.date} ${slot.time}.`);
+            if (slot.assigned.length > 0) continue;
+            const slotDateObj = new Date(slot.date);
+            const slotWeek = getWeekOfMonth(slotDateObj);
+            let p1 = null, p2 = null;
+            for (let i = 0; i < selectedRegularsList.length; i++) {
+                const candidateP1 = selectedRegularsList[i];
+                const candidateP1EnglishType = getEnglishParticipantType(candidateP1.type);
+                let p1SkipReason = "";
+                if (regularsAssignedInPhase2.has(candidateP1.id)) p1SkipReason = "already assigned in Phase 2";
+                else if (candidateP1EnglishType !== slot.type) p1SkipReason = `type (${candidateP1.type} -> ${candidateP1EnglishType}) mismatch slot type (${slot.type})`;
+                else if (tempDailyAssignments.get(slot.date)?.has(candidateP1.id)) p1SkipReason = "daily conflict";
+                else if (tempParticipantWeeklyAssignments.get(candidateP1.id)?.has(slotWeek)) p1SkipReason = "weekly conflict";
+                else {
+                    const p1TotalAssignments = assignmentCounts.get(candidateP1.id)?.get('total') || 0;
+                    if (p1TotalAssignments >= MAX_ALLOWED_ASSIGNMENTS) p1SkipReason = "at MAX_ALLOWED_ASSIGNMENTS";
+                    else if (p1TotalAssignments >= 2 && (tempParticipantWeeklyAssignments.get(candidateP1.id)?.has(slotWeek) || participantWeeklyAssignments.get(candidateP1.id)?.has(slotWeek))) p1SkipReason = "has >=2 total and weekly conflict";
+                }
+                if (p1SkipReason) { /*console.log(`Phase 2: Reg_Test: P1 ${candidateP1.name} skipped for slot ${slot.date} because: ${p1SkipReason}`);*/ continue;}
+                p1 = candidateP1;
+                // console.log(`Phase 2: Reg_Test: Tentative P1 ${p1.name} for slot ${slot.date}. Searching P2.`);
+                for (let j = 0; j < selectedRegularsList.length; j++) {
+                    if (i === j) continue;
+                    const candidateP2 = selectedRegularsList[j];
+                    const candidateP2EnglishType = getEnglishParticipantType(candidateP2.type);
+                    let p2SkipReason = "";
+                    if (regularsAssignedInPhase2.has(candidateP2.id)) p2SkipReason = "already assigned in Phase 2";
+                    else if (candidateP2EnglishType !== slot.type) p2SkipReason = `type (${candidateP2.type} -> ${candidateP2EnglishType}) mismatch slot type (${slot.type})`;
+                    else if (tempDailyAssignments.get(slot.date)?.has(candidateP2.id)) p2SkipReason = "partner daily conflict";
+                    else if (tempParticipantWeeklyAssignments.get(candidateP2.id)?.has(slotWeek)) p2SkipReason = "partner weekly conflict";
+                    else if (!isPairingAllowed(p1.id, candidateP2.id, participantsMap)) p2SkipReason = "pairing not allowed";
+                    else {
+                         const p2TotalAssignments = assignmentCounts.get(candidateP2.id)?.get('total') || 0;
+                        if (p2TotalAssignments >= MAX_ALLOWED_ASSIGNMENTS) p2SkipReason = "at MAX_ALLOWED_ASSIGNMENTS";
+                        else if (p2TotalAssignments >= 2 && (tempParticipantWeeklyAssignments.get(candidateP2.id)?.has(slotWeek) || participantWeeklyAssignments.get(candidateP2.id)?.has(slotWeek))) p2SkipReason = "has >=2 total and weekly conflict";
+                    }
+                    if (!p2SkipReason) { p2 = candidateP2; /*console.log(`Phase 2: Reg_Test: Found P2 ${p2.name} for P1 ${p1.name} in slot ${slot.date}`);*/ break; }
+                    // else { console.log(`Phase 2: Reg_Test: P2 ${candidateP2.name} skipped for P1 ${p1.name} because: ${p2SkipReason}`);}
+                }
+                if (p1 && p2) break;
+                else p1 = null;
+            }
+            if (p1 && p2) {
+                // console.log(`Phase 2: Reg_Test: SUCCESS - Assigning regulars ${p1.name} and ${p2.name} to slot ${slot.date} ${slot.time}`);
+                slot.assigned = [p1.id, p2.id];
+                slot.assignedNames = [participantsMap.get(p1.id)?.name, participantsMap.get(p2.id)?.name];
+                [p1.id, p2.id].forEach(pid => {
+                    const counts = assignmentCounts.get(pid);
+                    counts.set(slot.categoryKey, (counts.get(slot.categoryKey) || 0) + 1);
+                    counts.set('total', (counts.get('total') || 0) + 1);
+                });
+                if (!tempDailyAssignments.has(slot.date)) tempDailyAssignments.set(slot.date, new Set());
+                tempDailyAssignments.get(slot.date).add(p1.id);
+                tempDailyAssignments.get(slot.date).add(p2.id);
+                tempParticipantWeeklyAssignments.get(p1.id).add(slotWeek);
+                tempParticipantWeeklyAssignments.get(p2.id).add(slotWeek);
+                regularsAssignedInPhase2.add(p1.id);
+                regularsAssignedInPhase2.add(p2.id);
+                // console.log(`Phase 2: Assigned regulars ${participantsMap.get(p1.id)?.name} and ${participantsMap.get(p2.id)?.name} to ${slot.categoryKey} on ${slot.date} ${slot.time}`);
+            } else {
+                 // console.log(`Phase 2: Could not find suitable pair for core slot ${slot.categoryKey} on ${slot.date} ${slot.time}`);
+            }
+        }
+    }
+    console.log("Finished Phase 2.");
+
+    coreSlotInstances.forEach(coreSlot => {
+        let dayEntry = scheduleData.find(ds => ds.date === coreSlot.date);
+        if (!dayEntry) {
+            dayEntry = { date: coreSlot.date, dayOfWeek: coreSlot.dayOfWeek, timeSlots: [] };
+            scheduleData.push(dayEntry);
+        }
+        const existingSlotInDay = dayEntry.timeSlots.find(ts =>
+            ts.time === coreSlot.time &&
+            ts.type === coreSlot.type &&
+            ts.categoryKey === coreSlot.categoryKey
+        );
+        if (!existingSlotInDay) {
+            dayEntry.timeSlots.push({
+                time: coreSlot.time,
+                type: coreSlot.type,
+                assigned: coreSlot.assigned,
+                assignedNames: coreSlot.assignedNames,
+                isFixedStatus: coreSlot.isFixedStatus,
+                categoryKey: coreSlot.categoryKey,
+                processedInCorePhase: true
+            });
+        } else {
+            if (coreSlot.assigned.length > 0 && existingSlotInDay.assigned.length === 0) {
+                 existingSlotInDay.assigned = coreSlot.assigned;
+                 existingSlotInDay.assignedNames = coreSlot.assignedNames;
+                 existingSlotInDay.isFixedStatus = coreSlot.isFixedStatus;
+            }
+            existingSlotInDay.processedInCorePhase = true;
+        }
+    });
+
+    scheduleData.forEach(dayEntry => {
+        if (dayEntry.timeSlots.some(ts => ts.processedInCorePhase)) {
+            dayEntry.timeSlots.sort((a, b) => {
+                if (a.time < b.time) return -1;
+                if (a.time > b.time) return 1;
+                return 0;
+            });
+        }
+    });
+
+    for (const [participantId, weeks] of tempParticipantWeeklyAssignments) {
+        const mainWeeks = participantWeeklyAssignments.get(participantId);
+        if (mainWeeks) {
+            weeks.forEach(week => mainWeeks.add(week));
+        }
+    }
+
     const elementaryParticipants = activeParticipants.filter(p => p.type === '초등');
     const middleParticipants = activeParticipants.filter(p => p.type === '중등');
 
     for (let day = 1; day <= daysInMonth; day++) {
         const currentDate = new Date(year, month - 1, day);
         const dayOfWeekShort = DAYS_OF_WEEK[currentDate.getDay()];
-        const dayOfWeekNumeric = currentDate.getDay(); // 0 for Sun, 1 for Mon, ..., 6 for Sat
+        const dayOfWeekNumeric = currentDate.getDay();
         const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        let dailyAssignments = new Set(); let daySchedule = { date: dateStr, dayOfWeek: dayOfWeekShort, timeSlots: [] };
-        const slotsForDay = [...(TIME_SLOT_CONFIG[dayOfWeekShort] || [])]; // Make a copy
+
+        let dailyAssignments = tempDailyAssignments.get(dateStr) ? new Set(tempDailyAssignments.get(dateStr)) : new Set();
+
+        let dayScheduleEntry = scheduleData.find(ds => ds.date === dateStr);
+        if (!dayScheduleEntry) {
+            dayScheduleEntry = { date: dateStr, dayOfWeek: dayOfWeekShort, timeSlots: [] };
+            const existingDayIndex = scheduleData.findIndex(ds => ds.date === dateStr);
+            if (existingDayIndex === -1) {
+                scheduleData.push(dayScheduleEntry);
+            } else {
+                dayScheduleEntry = scheduleData[existingDayIndex];
+            }
+        }
+
+        const slotsForDayConfig = [...(TIME_SLOT_CONFIG[dayOfWeekShort] || [])];
 
         if (vacationStartDate && vacationEndDate &&
             currentDate >= vacationStartDate && currentDate <= vacationEndDate &&
-            dayOfWeekNumeric >= 1 && dayOfWeekNumeric <= 5) { // Monday to Friday
-
-            slotsForDay.push({
+            dayOfWeekNumeric >= 1 && dayOfWeekNumeric <= 5) {
+            slotsForDayConfig.push({
                 time: '10:00',
-                type: 'elementary', // For elementary students
-                random: true, // Treat as random for assignment logic simplicity
-                categoryKey: 'elementary_vacation_10am', // New unique category key
-                isVacationSlot: true // Custom flag
+                type: 'elementary',
+                random: true,
+                categoryKey: 'elementary_vacation_10am',
+                isVacationSlot: true
             });
         }
 
-        // Sort slots on Tuesday or Thursday if vacation slots might have been added
-        if (dayOfWeekNumeric === 2 || dayOfWeekNumeric === 4) { // Tuesday or Thursday
-            slotsForDay.sort((a, b) => {
-                // Simple string comparison works for "HH:MM" format
+        if (dayOfWeekNumeric === 2 || dayOfWeekNumeric === 4 || (vacationStartDate && vacationEndDate)) {
+            slotsForDayConfig.sort((a, b) => {
                 if (a.time < b.time) return -1;
                 if (a.time > b.time) return 1;
                 return 0;
             });
         }
 
-        for (const slotInfo of slotsForDay) {
-            let assignedPair = []; let fixedAssigneeId = null;
-            const originalTargetPool = slotInfo.type === 'elementary' ? elementaryParticipants : middleParticipants;
-            if (originalTargetPool.length < 2) continue;
+        for (const slotInfo of slotsForDayConfig) {
+            const coreAssignedSlot = dayScheduleEntry.timeSlots.find(ts =>
+                ts.time === slotInfo.time &&
+                getEnglishParticipantType(ts.type) === getEnglishParticipantType(slotInfo.type) &&
+                ts.categoryKey === slotInfo.categoryKey &&
+                ts.assigned.length > 0
+            );
+
+            if (coreAssignedSlot) {
+                continue;
+            }
+            let assignedPair = [];
+            const slotEnglishType = getEnglishParticipantType(slotInfo.type);
+            const originalTargetPool = slotEnglishType === 'elementary' ? elementaryParticipants : middleParticipants;
+
+            if (originalTargetPool.length < 2) {
+                const existingTimeSlot = dayScheduleEntry.timeSlots.find(ts => ts.time === slotInfo.time && getEnglishParticipantType(ts.type) === slotEnglishType && ts.categoryKey === slotInfo.categoryKey);
+                if(!existingTimeSlot){
+                    dayScheduleEntry.timeSlots.push({ time: slotInfo.time, type: slotInfo.type, assigned: [], assignedNames: ['미배정'], isFixedStatus: [false, false], categoryKey: slotInfo.categoryKey });
+                }
+                continue;
+            }
             const currentWeekForSlot = getWeekOfMonth(currentDate);
 
             if (slotInfo.sequential) {
-                const isElementaryCoreSlot = slotInfo.categoryKey === CORE_CATEGORIES.elementary;
-                const isMiddleCoreSlot = slotInfo.categoryKey === CORE_CATEGORIES.middle;
-                let attemptA1Successful = false;
-
-                if (isElementaryCoreSlot || isMiddleCoreSlot) { // A-1
-                    const potentialAbsenteesForFirstCoreAssignment = originalTargetPool.filter(p =>
-                        prevMonthAbsentees.has(p.id) && (fixedAbsenteeAssignments.get(p.id) || 0) === 0 &&
-                        !absenteeFixedWeeklyAssignments.get(p.id)?.has(currentWeekForSlot) && !dailyAssignments.has(p.id) &&
-                        !((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeekForSlot)) &&
-                        ((assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS)
-                    );
-                    if (potentialAbsenteesForFirstCoreAssignment.length > 0) {
-                        const sortedPotentialAbsentees = potentialAbsenteesForFirstCoreAssignment.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts, false));
-                        for (const absenteeData of sortedPotentialAbsentees) {
-                            const absenteeToAssign = absenteeData.obj;
-                            const eligiblePartnersPool = originalTargetPool.filter(p => p.id !== absenteeToAssign.id && !dailyAssignments.has(p.id) && !((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeekForSlot)) && ((assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS)); // Corrected: Removed duplicate declaration
-                            const enhancedEligiblePartners = eligiblePartnersPool.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts, false));
-                            let partnerToAssign = null;
-                            for (const partnerData of enhancedEligiblePartners) {
-                                const potentialPartner = partnerData.obj;
-                                if (isPairingAllowed(absenteeToAssign.id, potentialPartner.id, participantsMap)) {
-                                    partnerToAssign = potentialPartner;
-                                    break;
-                                }
+                const isCoreSlotCategory = CORE_CATEGORIES_LIST.includes(slotInfo.categoryKey);
+                if (isCoreSlotCategory) {
+                    // console.log(`Main Loop: Core sequential slot ${slotInfo.categoryKey} on ${dateStr} at ${slotInfo.time} was not filled in core phases. Attempting general assignment.`);
+                }
+                const filteredTargetPool = originalTargetPool.filter(p => {
+                    if (dailyAssignments.has(p.id)) return false;
+                    const pCountsMap = assignmentCounts.get(p.id);
+                    const pWeeklyAssignments = participantWeeklyAssignments.get(p.id);
+                    if ((pCountsMap.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) return false;
+                    if (((pCountsMap.get('total') || 0) >= 2 && pWeeklyAssignments.has(currentWeekForSlot))) return false;
+                    return true;
+                });
+                const enhancedTargetPool = filteredTargetPool.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES_MAP, calculatedPrevTotalCounts)).sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts, false));
+                const sortedTargetPool = enhancedTargetPool.map(data => data.obj);
+                let p1Obj = null, p2Obj = null;
+                if (sortedTargetPool.length >= 2) {
+                    for (let i = 0; i < sortedTargetPool.length; i++) {
+                        const cand1 = sortedTargetPool[i];
+                        if(dailyAssignments.has(cand1.id)) continue;
+                        for (let j = i + 1; j < sortedTargetPool.length; j++) {
+                            const cand2 = sortedTargetPool[j];
+                            if(dailyAssignments.has(cand2.id) || cand1.id === cand2.id) continue;
+                            if (isPairingAllowed(cand1.id, cand2.id, participantsMap)) {
+                                p1Obj = cand1; p2Obj = cand2; break;
                             }
-                            if (partnerToAssign) { assignedPair = [absenteeToAssign.id, partnerToAssign.id]; fixedAssigneeId = absenteeToAssign.id; fixedAbsenteeAssignments.set(absenteeToAssign.id, (fixedAbsenteeAssignments.get(absenteeToAssign.id) || 0) + 1); absenteeFixedWeeklyAssignments.get(absenteeToAssign.id).add(currentWeekForSlot); if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++; else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++; attemptA1Successful = true; absenteesAssignedInMainLoop.add(absenteeToAssign.id); if (partnerToAssign && prevMonthAbsentees.has(partnerToAssign.id)) absenteesAssignedInMainLoop.add(partnerToAssign.id); break; }
                         }
+                        if (p1Obj && p2Obj) break;
                     }
                 }
-                if (!attemptA1Successful && (isElementaryCoreSlot || isMiddleCoreSlot)) { // A-2
-                    const potentialAbsenteesForSecondCore = originalTargetPool.filter(p => { const targetAssignments = p.type === '초등' ? elementaryTargetCoreAssignments : middleTargetCoreAssignments; return prevMonthAbsentees.has(p.id) && (fixedAbsenteeAssignments.get(p.id) || 0) === 1 && targetAssignments === 2 && !absenteeFixedWeeklyAssignments.get(p.id)?.has(currentWeekForSlot) && !dailyAssignments.has(p.id) && !((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeekForSlot)) && ((assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS); });
-                    if (potentialAbsenteesForSecondCore.length > 0) {
-                        const sortedPotentialAbsentees = potentialAbsenteesForSecondCore.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts, false));
-                        for (const absenteeData of sortedPotentialAbsentees) {
-                            const absenteeToAssign = absenteeData.obj;
-                            const eligiblePartnersPool = originalTargetPool.filter(p => p.id !== absenteeToAssign.id && !dailyAssignments.has(p.id) && !((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeekForSlot)) && ((assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS)); // Removed gender check, this line should be the single declaration
-                            const enhancedEligiblePartners = eligiblePartnersPool.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts, false));
-                            let partnerToAssign = null;
-                            for (const partnerData of enhancedEligiblePartners) {
-                                const potentialPartner = partnerData.obj;
-                                if (isPairingAllowed(absenteeToAssign.id, potentialPartner.id, participantsMap)) {
-                                    partnerToAssign = potentialPartner;
-                                    break;
-                                }
-                            }
-                            if (partnerToAssign) { assignedPair = [absenteeToAssign.id, partnerToAssign.id]; fixedAssigneeId = absenteeToAssign.id; fixedAbsenteeAssignments.set(absenteeToAssign.id, (fixedAbsenteeAssignments.get(absenteeToAssign.id) || 0) + 1); absenteeFixedWeeklyAssignments.get(absenteeToAssign.id).add(currentWeekForSlot); if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++; else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++; absenteesAssignedInMainLoop.add(absenteeToAssign.id); if (partnerToAssign && prevMonthAbsentees.has(partnerToAssign.id)) absenteesAssignedInMainLoop.add(partnerToAssign.id); break; }
-                        }
-                    }
-                }
-                if (assignedPair.length < 2 && (isElementaryCoreSlot || isMiddleCoreSlot)) { // B-1
-                    const typeKeyB1 = isElementaryCoreSlot ? 'elementary' : 'middle';
-                    const coreCategoryKeyForB1 = (typeKeyB1 === 'elementary' ? CORE_CATEGORIES.elementary : CORE_CATEGORIES.middle);
-                    const b1CandidatePoolForSlot = (typeKeyB1 === 'elementary' ? b1CoreSelectedElementary : b1CoreSelectedMiddle)
-                        .filter(p => {
-                            const pTotalAssignments = assignmentCounts.get(p.id)?.get('total') || 0;
-                            const pCoreCategoryAssignments = assignmentCounts.get(p.id)?.get(coreCategoryKeyForB1) || 0;
-                            return pTotalAssignments < MAX_ALLOWED_ASSIGNMENTS && pCoreCategoryAssignments === 0 &&
-                                   !dailyAssignments.has(p.id) && !participantWeeklyAssignments.get(p.id)?.has(currentWeekForSlot) &&
-                                   !absenteesAssignedInMainLoop.has(p.id);
-                        });
-                    if (b1CandidatePoolForSlot.length >= 2) {
-                        b1CandidatePoolForSlot.sort(() => Math.random() - 0.5); let p1_B1 = null, p2_B1 = null;
-                        for (let i = 0; i < b1CandidatePoolForSlot.length; i++) { const cand1 = b1CandidatePoolForSlot[i]; if (dailyAssignments.has(cand1.id) || participantWeeklyAssignments.get(cand1.id)?.has(currentWeekForSlot) || (assignmentCounts.get(cand1.id)?.get(coreCategoryKeyForB1) || 0) !== 0 ) continue; for (let j = i + 1; j < b1CandidatePoolForSlot.length; j++) { const cand2 = b1CandidatePoolForSlot[j]; if (dailyAssignments.has(cand2.id) || participantWeeklyAssignments.get(cand2.id)?.has(currentWeekForSlot) || (assignmentCounts.get(cand2.id)?.get(coreCategoryKeyForB1) || 0) !== 0 ) continue; if (isPairingAllowed(cand1.id, cand2.id, participantsMap)) { p1_B1 = cand1; p2_B1 = cand2; break; } } if (p1_B1 && p2_B1) break; } // Removed gender check
-                        if (p1_B1 && p2_B1) { assignedPair = [p1_B1.id, p2_B1.id]; fixedAssigneeId = null; if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++; else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++; }
-                    }
-                }
-                if (assignedPair.length < 2) { // B-2 or General Sequential
-                    if (isElementaryCoreSlot || isMiddleCoreSlot) {
-                        const coreCategoryKeyForSlot = slotInfo.categoryKey;
-                        let countMissingFirstCore = 0;
-                        const participantPoolForB2Check = (slotInfo.type === 'elementary' ? elementaryParticipants : middleParticipants).filter(p => p.isActive && !prevMonthAbsentees.has(p.id));
-                        for (const p of participantPoolForB2Check) {
-                            if ((assignmentCounts.get(p.id)?.get(coreCategoryKeyForSlot) || 0) === 0) {
-                                countMissingFirstCore++;
-                            }
-                        }
-                        const b2ActivationThreshold = 0;
-                        if (countMissingFirstCore <= b2ActivationThreshold) {
-                            const remainingCoreSlotsForType = totalCoreSlots[coreCategoryKeyForSlot] - assignedCoreSlotsCount[coreCategoryKeyForSlot];
-                            if (remainingCoreSlotsForType > 0) {
-                                const potentialRegularsForSecondCore = originalTargetPool.filter(p => !prevMonthAbsentees.has(p.id) && !absenteesAssignedInMainLoop.has(p.id) && (assignmentCounts.get(p.id)?.get(coreCategoryKeyForSlot) || 0) === 1 && !dailyAssignments.has(p.id) && !((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeekForSlot)) && ((assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS));
-                                if (potentialRegularsForSecondCore.length >= 2) {
-                                    const sortedRegularsForSecondCore = potentialRegularsForSecondCore.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts, false)).map(data => data.obj);
-                                    let p1Obj_B2 = null, p2Obj_B2 = null;
-                                    for (let i = 0; i < sortedRegularsForSecondCore.length; i++) { const candidate1_B2 = sortedRegularsForSecondCore[i]; if (dailyAssignments.has(candidate1_B2.id) || (assignmentCounts.get(candidate1_B2.id)?.get(coreCategoryKeyForSlot) || 0) !== 1) continue; p1Obj_B2 = candidate1_B2; for (let p2LoopIdx = i + 1; p2LoopIdx < sortedRegularsForSecondCore.length; p2LoopIdx++) { const candidate2_B2 = sortedRegularsForSecondCore[p2LoopIdx]; if (dailyAssignments.has(candidate2_B2.id) || candidate2_B2.id === p1Obj_B2.id || (assignmentCounts.get(candidate2_B2.id)?.get(coreCategoryKeyForSlot) || 0) !== 1) continue; if (isPairingAllowed(p1Obj_B2.id, candidate2_B2.id, participantsMap)) { p2Obj_B2 = candidate2_B2; break; } } if (p1Obj_B2 && p2Obj_B2) { assignedPair = [p1Obj_B2.id, p2Obj_B2.id]; fixedAssigneeId = null; if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++; else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++; break; } if(p1Obj_B2 && !p2Obj_B2) p1Obj_B2 = null; } // Removed gender check
-                                }
-                            }
-                        } else {
-                             console.log(`B-2 skipped for ${coreCategoryKeyForSlot} on ${dateStr}: ${countMissingFirstCore} participants still need their first core assignment.`);
-                        }
-                    }
-                    if (assignedPair.length < 2) { // General Sequential Fallback
-                        const filteredTargetPool = originalTargetPool.filter(p => {
-                            let isEligible = true; if (prevMonthAbsentees.has(p.id)) { const targetCount = (p.type === '초등' && isElementaryCoreSlot) ? elementaryTargetCoreAssignments : (p.type === '중등' && isMiddleCoreSlot) ? middleTargetCoreAssignments : 2; if ((fixedAbsenteeAssignments.get(p.id) || 0) >= targetCount) isEligible = false; if ((isElementaryCoreSlot || isMiddleCoreSlot) && absenteeFixedWeeklyAssignments.get(p.id)?.has(currentWeekForSlot)) isEligible = false; } if (!isEligible && (isElementaryCoreSlot || isMiddleCoreSlot)) return false;
-                            const pCountsMap = assignmentCounts.get(p.id); const pWeeklyAssignments = participantWeeklyAssignments.get(p.id);
-                            if ((pCountsMap.get('total') || 0) >= 2 && pWeeklyAssignments.has(currentWeekForSlot)) return false;
-                            if ((pCountsMap.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) return false;
-                            return !dailyAssignments.has(p.id);
-                        });
-                        const enhancedTargetPool = filteredTargetPool.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts, false));
-                        const sortedTargetPool = enhancedTargetPool.map(data => data.obj); let p1Obj = null, p2Obj = null;
-                        if (sortedTargetPool.length >= 2) { for (let i = 0; i < sortedTargetPool.length; i++) { const cand1 = sortedTargetPool[i]; if(dailyAssignments.has(cand1.id)) continue; for (let j = i + 1; j < sortedTargetPool.length; j++) { const cand2 = sortedTargetPool[j]; if(dailyAssignments.has(cand2.id) || cand1.id === cand2.id) continue; if (isPairingAllowed(cand1.id, cand2.id, participantsMap)) { p1Obj = cand1; p2Obj = cand2; break; } } if (p1Obj && p2Obj) break; } } // Removed gender check
-                        if (p1Obj && p2Obj) {
-                            assignedPair = [p1Obj.id, p2Obj.id]; fixedAssigneeId = null;
-                            [p1Obj, p2Obj].forEach(person => { if (prevMonthAbsentees.has(person.id) && (isElementaryCoreSlot || isMiddleCoreSlot)) { const targetCount = (person.type === '초등') ? elementaryTargetCoreAssignments : middleTargetCoreAssignments; if ((fixedAbsenteeAssignments.get(person.id) || 0) < targetCount && !absenteeFixedWeeklyAssignments.get(person.id)?.has(currentWeekForSlot) ) { fixedAbsenteeAssignments.set(person.id, (fixedAbsenteeAssignments.get(person.id) || 0) + 1); absenteeFixedWeeklyAssignments.get(person.id).add(currentWeekForSlot); if (!fixedAssigneeId) fixedAssigneeId = person.id; } } });
-                            if (isElementaryCoreSlot || isMiddleCoreSlot) { if (slotInfo.categoryKey === CORE_CATEGORIES.elementary) assignedCoreSlotsCount.elementary_6am++; else if (slotInfo.categoryKey === CORE_CATEGORIES.middle) assignedCoreSlotsCount.middle_7am++; }
-                        }
-                    }
+                if (p1Obj && p2Obj) {
+                    assignedPair = [p1Obj.id, p2Obj.id];
                 }
             } else if (slotInfo.random) {
+                const isCoreSlotCategoryRandom = CORE_CATEGORIES_LIST.includes(slotInfo.categoryKey);
+                if (isCoreSlotCategoryRandom) {
+                    // console.log(`Main Loop: Core random slot ${slotInfo.categoryKey} on ${dateStr} at ${slotInfo.time} was not filled in core phases. Attempting general random assignment.`);
+                }
                 let eligibleForRandomRaw = originalTargetPool.filter(p => {
                     if (dailyAssignments.has(p.id)) return false;
-
                     const pCountsMap = assignmentCounts.get(p.id);
-                    if (!pCountsMap) return false; // Should not happen if maps are initialized correctly
-                    if ((pCountsMap.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) return false;
-
+                    if (!pCountsMap || (pCountsMap.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) return false;
                     const pWeeklyAssignments = participantWeeklyAssignments.get(p.id);
-                    if (!pWeeklyAssignments) return false; // Should not happen
-                    // Weekly cap: if 2 or more total assignments, cannot be assigned again in the same week.
-                    if ((pCountsMap.get('total') || 0) >= 2 && pWeeklyAssignments.has(currentWeekForSlot)) return false;
-
+                    if (!pWeeklyAssignments || ((pCountsMap.get('total') || 0) >= 2 && pWeeklyAssignments.has(currentWeekForSlot))) return false;
                     if (prevMonthAbsentees.has(p.id)) {
-                        const targetFixedCount = p.type === '초등' ? elementaryTargetCoreAssignments : middleTargetCoreAssignments;
-                        // Absentee is eligible for random only if their "forced" assignments are done.
-                        if ((fixedAbsenteeAssignments.get(p.id) || 0) < targetFixedCount) {
-                            return false;
+                        const absenteeCoreCount = absenteeCoreAssignmentsCount.get(p.id) || 0;
+                        if (isCoreSlotCategoryRandom && absenteeCoreCount < 2) {
                         }
                     }
                     return true;
                 });
-                // const nonAbsentees = eligibleForRandomRaw.filter(p => !prevMonthAbsentees.has(p.id)); if (nonAbsentees.length >= 2) eligibleForRandomRaw = nonAbsentees; // This line is removed as per requirement
-                const enhancedEligibleForRandom = eligibleForRandomRaw.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts));
+                const enhancedEligibleForRandom = eligibleForRandomRaw.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES_MAP, calculatedPrevTotalCounts));
                 enhancedEligibleForRandom.sort((a,b) => compareEnhancedParticipants(a,b,true,assignmentCounts, true));
                 let p1Data = null, p2Data = null;
-                for (let i = 0; i < enhancedEligibleForRandom.length; i++) { p1Data = enhancedEligibleForRandom[i]; for (let j = i + 1; j < enhancedEligibleForRandom.length; j++) { p2Data = enhancedEligibleForRandom[j]; if (isPairingAllowed(p1Data.id, p2Data.id, participantsMap)) { assignedPair = [p1Data.id, p2Data.id]; break; } } if (assignedPair.length === 2) break; p2Data = null; } // Removed gender check
-                if (!p1Data || !p2Data || assignedPair.length < 2) assignedPair = []; // Ensure assignedPair is reset if no valid pair found
-                if (assignedPair.length < 2 && eligibleForRandomRaw.length >=2) { // Fallback if primary sort didn't yield a pair
-                    const poolForFallback = enhancedEligibleForRandom.map(data => data.obj); let p1Obj = null, p2Obj = null;
-                    for (let i = 0; i < poolForFallback.length; i++) { const candidate1 = poolForFallback[i]; if (dailyAssignments.has(candidate1.id)) continue; p1Obj = candidate1; for (let j = i + 1; j < poolForFallback.length; j++) { const candidate2 = poolForFallback[j]; if (dailyAssignments.has(candidate2.id) || candidate2.id === p1Obj.id) continue; if (isPairingAllowed(p1Obj.id, candidate2.id, participantsMap)) { p2Obj = candidate2; break; } } if (p1Obj && p2Obj) { assignedPair = [p1Obj.id, p2Obj.id]; break; } if(p1Obj && !p2Obj) p1Obj = null; } // Removed gender check
+                for (let i = 0; i < enhancedEligibleForRandom.length; i++) {
+                    p1Data = enhancedEligibleForRandom[i];
+                    for (let j = i + 1; j < enhancedEligibleForRandom.length; j++) {
+                        p2Data = enhancedEligibleForRandom[j];
+                        if (isPairingAllowed(p1Data.id, p2Data.id, participantsMap)) {
+                            assignedPair = [p1Data.id, p2Data.id]; break;
+                        }
+                    }
+                    if (assignedPair.length === 2) break;
+                    p2Data = null;
+                }
+                if (!p1Data || !p2Data || assignedPair.length < 2) assignedPair = [];
+                if (assignedPair.length < 2 && eligibleForRandomRaw.length >=2) {
+                    const poolForFallback = enhancedEligibleForRandom.map(data => data.obj);
+                    let p1Obj = null, p2Obj = null;
+                    for (let i = 0; i < poolForFallback.length; i++) {
+                        const candidate1 = poolForFallback[i];
+                        if (dailyAssignments.has(candidate1.id)) continue;
+                        p1Obj = candidate1;
+                        for (let j = i + 1; j < poolForFallback.length; j++) {
+                            const candidate2 = poolForFallback[j];
+                            if (dailyAssignments.has(candidate2.id) || candidate2.id === p1Obj.id) continue;
+                            if (isPairingAllowed(p1Obj.id, candidate2.id, participantsMap)) {
+                                p2Obj = candidate2; break;
+                            }
+                        }
+                        if (p1Obj && p2Obj) { assignedPair = [p1Obj.id, p2Obj.id]; break; }
+                        if(p1Obj && !p2Obj) p1Obj = null;
+                    }
                 }
             }
-
-            if (assignedPair.length === 2) {
-                assignedPair.forEach(id => { dailyAssignments.add(id); const countsForParticipant = assignmentCounts.get(id); countsForParticipant.set('total', (countsForParticipant.get('total') || 0) + 1); if (slotInfo.categoryKey) countsForParticipant.set(slotInfo.categoryKey, (countsForParticipant.get(slotInfo.categoryKey) || 0) + 1); participantWeeklyAssignments.get(id).add(currentWeekForSlot); });
-                daySchedule.timeSlots.push({ time: slotInfo.time, type: slotInfo.type, assigned: assignedPair, assignedNames: assignedPair.map(id => participantsMap.get(id)?.name || `ID:${id}`), isFixedStatus: assignedPair.map(id => id === fixedAssigneeId && fixedAssigneeId !== null), categoryKey: slotInfo.categoryKey });
+            const existingTimeSlotIndex = dayScheduleEntry.timeSlots.findIndex(ts => ts.time === slotInfo.time && getEnglishParticipantType(ts.type) === slotEnglishType && ts.categoryKey === slotInfo.categoryKey);
+            if (existingTimeSlotIndex !== -1) {
+                if (assignedPair.length === 2) {
+                    dayScheduleEntry.timeSlots[existingTimeSlotIndex].assigned = assignedPair;
+                    dayScheduleEntry.timeSlots[existingTimeSlotIndex].assignedNames = assignedPair.map(id => participantsMap.get(id)?.name || `ID:${id}`);
+                    dayScheduleEntry.timeSlots[existingTimeSlotIndex].isFixedStatus = [false, false];
+                    assignedPair.forEach(id => {
+                        dailyAssignments.add(id);
+                        const countsForParticipant = assignmentCounts.get(id);
+                        countsForParticipant.set('total', (countsForParticipant.get('total') || 0) + 1);
+                        if (slotInfo.categoryKey) countsForParticipant.set(slotInfo.categoryKey, (countsForParticipant.get(slotInfo.categoryKey) || 0) + 1);
+                        participantWeeklyAssignments.get(id).add(currentWeekForSlot);
+                    });
+                }
             } else {
-                daySchedule.timeSlots.push({ time: slotInfo.time, type: slotInfo.type, assigned: [], assignedNames: ['미배정'], isFixedStatus: [false, false], categoryKey: slotInfo.categoryKey });
+                 dayScheduleEntry.timeSlots.push({
+                    time: slotInfo.time,
+                    type: slotInfo.type,
+                    assigned: assignedPair.length === 2 ? assignedPair : [],
+                    assignedNames: assignedPair.length === 2 ? assignedPair.map(id => participantsMap.get(id)?.name || `ID:${id}`) : ['미배정'],
+                    isFixedStatus: [false, false],
+                    categoryKey: slotInfo.categoryKey
+                });
+                if (assignedPair.length === 2) {
+                    assignedPair.forEach(id => {
+                        dailyAssignments.add(id);
+                        const countsForParticipant = assignmentCounts.get(id);
+                        countsForParticipant.set('total', (countsForParticipant.get('total') || 0) + 1);
+                        if (slotInfo.categoryKey) countsForParticipant.set(slotInfo.categoryKey, (countsForParticipant.get(slotInfo.categoryKey) || 0) + 1);
+                        participantWeeklyAssignments.get(id).add(currentWeekForSlot);
+                    });
+                }
             }
         }
-        if (daySchedule.timeSlots.length > 0) scheduleData.push(daySchedule);
+        if (dayScheduleEntry.timeSlots.length > 0) {
+            const existingDayIndex = scheduleData.findIndex(ds => ds.date === dateStr);
+            if (existingDayIndex === -1) {
+                dayScheduleEntry.timeSlots.sort((a,b) => {
+                    if (a.time < b.time) return -1;
+                    if (a.time > b.time) return 1;
+                    return 0;
+                });
+                scheduleData.push(dayScheduleEntry);
+            } else {
+                scheduleData[existingDayIndex].timeSlots.sort((a,b) => {
+                    if (a.time < b.time) return -1;
+                    if (a.time > b.time) return 1;
+                    return 0;
+                });
+            }
+        }
     }
+    scheduleData.sort((a,b) => new Date(a.date) - new Date(b.date));
 
-    console.log("Attempting 2nd round 'non-core' assignments for absentees who still need them.");
-    const absenteesStillNeedingSecondAssignmentFiltered = activeParticipants.filter(p => prevMonthAbsentees.has(p.id) && (fixedAbsenteeAssignments.get(p.id) || 0) < 2 && ((assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS) && (absenteesForSecondRandomRound.has(p.id) || ((p.type === '초등' && elementaryTargetCoreAssignments === 2) || (p.type === '중등' && middleTargetCoreAssignments === 2))));
-    if (absenteesStillNeedingSecondAssignmentFiltered.length > 0) {
-        console.log("Absentees for 2nd non-core round:", absenteesStillNeedingSecondAssignmentFiltered.map(p=>p.name));
+    // console.log("Attempting 2nd round 'non-core' assignments for absentees who still need them.");
+    // console.log("Attempting 2nd assignment (non-core, if core targets not met) for absentees.");
+    const absenteesPotentiallyNeedingNonCoreFill = activeParticipants.filter(p =>
+        prevMonthAbsentees.has(p.id) &&
+        (absenteeCoreAssignmentsCount.get(p.id) || 0) < 2 &&
+        (assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS &&
+        (assignmentCounts.get(p.id)?.get('total') || 0) < 2
+    );
+
+    if (absenteesPotentiallyNeedingNonCoreFill.length > 0) {
+        // console.log("Fall A2: Absentees for 2nd assignment (non-core, because <2 core and <2 total):", absenteesPotentiallyNeedingNonCoreFill.map(p=>p.name + ` (Core: ${absenteeCoreAssignmentsCount.get(p.id)}, Total: ${assignmentCounts.get(p.id)?.get('total')})`));
         const postLoopDailyAssignments_A2_NonCore = new Map();
-        for(let d = 1; d <= daysInMonth; d++) { const dateStrKey = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`; postLoopDailyAssignments_A2_NonCore.set(dateStrKey, new Set()); const dayScheduleFromMainLoop = scheduleData.find(ds => ds.date === dateStrKey); if (dayScheduleFromMainLoop) dayScheduleFromMainLoop.timeSlots.forEach(slot => slot.assigned.forEach(id => postLoopDailyAssignments_A2_NonCore.get(dateStrKey).add(id))); }
+        scheduleData.forEach(daySch => {
+            const dailySet = new Set();
+            daySch.timeSlots.forEach(slot => slot.assigned.forEach(id => dailySet.add(id)));
+            postLoopDailyAssignments_A2_NonCore.set(daySch.date, dailySet);
+        });
 
-        for (const absentee of absenteesStillNeedingSecondAssignmentFiltered) {
-            if ((fixedAbsenteeAssignments.get(absentee.id) || 0) >= 2 || (assignmentCounts.get(absentee.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) continue;
+        for (const absentee of absenteesPotentiallyNeedingNonCoreFill) {
+            if ((assignmentCounts.get(absentee.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS ||
+                (assignmentCounts.get(absentee.id)?.get('total') || 0) >= 2) {
+                continue;
+            }
             for (let day = 1; day <= daysInMonth; day++) {
-                if ((fixedAbsenteeAssignments.get(absentee.id) || 0) >= 2 || (assignmentCounts.get(absentee.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) break;
-                const currentDate = new Date(year, month - 1, day); const currentWeek = getWeekOfMonth(currentDate); const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`; const dailyAssignedForThisDay = postLoopDailyAssignments_A2_NonCore.get(dateStr);
-                if (absenteeFixedWeeklyAssignments.get(absentee.id)?.has(currentWeek) || dailyAssignedForThisDay.has(absentee.id)) continue;
-                const slotsForDay = TIME_SLOT_CONFIG[DAYS_OF_WEEK[currentDate.getDay()]] || [];
-                for (const slotInfo_A2_NonCore of slotsForDay) {
-                    if ((fixedAbsenteeAssignments.get(absentee.id) || 0) >= 2 || (assignmentCounts.get(absentee.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) break;
-                    if (slotInfo_A2_NonCore.categoryKey === CORE_CATEGORIES.elementary || slotInfo_A2_NonCore.categoryKey === CORE_CATEGORIES.middle) continue;
-                    const daySch = scheduleData.find(ds => ds.date === dateStr); if (!daySch) continue;
-                    const targetSlot = daySch.timeSlots.find(ts => ts.time === slotInfo_A2_NonCore.time && ts.type === slotInfo_A2_NonCore.type && ts.categoryKey === slotInfo_A2_NonCore.categoryKey);
-                    if (!targetSlot || targetSlot.assigned.length > 0) continue;
-                    if (((assignmentCounts.get(absentee.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(absentee.id)?.has(currentWeek))) continue;
-                    const partnerPool = (absentee.type === '초등' ? elementaryParticipants : middleParticipants).filter(p => p.id !== absentee.id && !dailyAssignedForThisDay.has(p.id) && !(((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeek))) && ((assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS) ); // Removed gender check
+                 if ((assignmentCounts.get(absentee.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS ||
+                     (assignmentCounts.get(absentee.id)?.get('total') || 0) >= 2) {
+                    break;
+                }
+                const currentDate = new Date(year, month - 1, day);
+                const currentWeek = getWeekOfMonth(currentDate);
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                const dailyAssignedForThisDay = postLoopDailyAssignments_A2_NonCore.get(dateStr) || new Set();
+                if (( (assignmentCounts.get(absentee.id)?.get('total') || 0) === 1 && participantWeeklyAssignments.get(absentee.id)?.has(currentWeek) ) ||
+                    dailyAssignedForThisDay.has(absentee.id)) {
+                    continue;
+                }
+                const daySch = scheduleData.find(ds => ds.date === dateStr);
+                if (!daySch) continue;
+                const availableSlotsForDay = daySch.timeSlots.filter(ts =>
+                    ts.assigned.length === 0 &&
+                    !CORE_CATEGORIES_LIST.includes(ts.categoryKey)
+                );
+                for (const targetSlot of availableSlotsForDay) {
+                    if ((assignmentCounts.get(absentee.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS ||
+                        (assignmentCounts.get(absentee.id)?.get('total') || 0) >= 2) {
+                       break;
+                   }
+                   if (dailyAssignedForThisDay.has(absentee.id)) continue;
+                   if (( (assignmentCounts.get(absentee.id)?.get('total') || 0) === 1 && participantWeeklyAssignments.get(absentee.id)?.has(currentWeek) )) continue;
+                    const absenteeEnglishType = getEnglishParticipantType(absentee.type);
+                    const targetPoolType = getEnglishParticipantType(targetSlot.type);
+                    const partnerPool = (targetPoolType === 'elementary' ? elementaryParticipants : middleParticipants).filter(p => {
+                        if (getEnglishParticipantType(p.type) !== targetPoolType) return false;
+                        if (p.id === absentee.id || dailyAssignedForThisDay.has(p.id)) return false;
+                        const pTotal = assignmentCounts.get(p.id)?.get('total') || 0;
+                        if (pTotal >= MAX_ALLOWED_ASSIGNMENTS) return false;
+                        if ( (pTotal === 1 && participantWeeklyAssignments.get(p.id)?.has(currentWeek) ) ||
+                             (pTotal >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeek) ) ) return false;
+                        return true;
+                    });
                     let partnerToAssign = null;
                     for (const potentialPartner of partnerPool) {
                         if (isPairingAllowed(absentee.id, potentialPartner.id, participantsMap)) {
@@ -407,8 +712,21 @@ export async function generateSchedule(year, month) {
                         }
                     }
                     if (partnerToAssign) {
-                        targetSlot.assigned = [absentee.id, partnerToAssign.id]; targetSlot.assignedNames = [participantsMap.get(absentee.id)?.name, participantsMap.get(partnerToAssign.id)?.name]; targetSlot.isFixedStatus = [false, false]; dailyAssignedForThisDay.add(absentee.id); dailyAssignedForThisDay.add(partnerToAssign.id); fixedAbsenteeAssignments.set(absentee.id, (fixedAbsenteeAssignments.get(absentee.id) || 0) + 1);
-                        [absentee.id, partnerToAssign.id].forEach(pid => { const counts = assignmentCounts.get(pid); counts.set('total', (counts.get('total') || 0) + 1); if (slotInfo_A2_NonCore.categoryKey) counts.set(slotInfo_A2_NonCore.categoryKey, (counts.get(slotInfo_A2_NonCore.categoryKey) || 0) + 1); participantWeeklyAssignments.get(pid).add(currentWeek); });
+                        targetSlot.assigned = [absentee.id, partnerToAssign.id];
+                        targetSlot.assignedNames = [participantsMap.get(absentee.id)?.name, participantsMap.get(partnerToAssign.id)?.name];
+                        targetSlot.isFixedStatus = [false, false];
+                        dailyAssignedForThisDay.add(absentee.id);
+                        dailyAssignedForThisDay.add(partnerToAssign.id);
+                        if (!postLoopDailyAssignments_A2_NonCore.has(dateStr)) postLoopDailyAssignments_A2_NonCore.set(dateStr, new Set());
+                        postLoopDailyAssignments_A2_NonCore.get(dateStr).add(absentee.id);
+                        postLoopDailyAssignments_A2_NonCore.get(dateStr).add(partnerToAssign.id);
+                        [absentee.id, partnerToAssign.id].forEach(pid => {
+                            const counts = assignmentCounts.get(pid);
+                            counts.set('total', (counts.get('total') || 0) + 1);
+                            if (targetSlot.categoryKey) counts.set(targetSlot.categoryKey, (counts.get(targetSlot.categoryKey) || 0) + 1);
+                            participantWeeklyAssignments.get(pid).add(currentWeek);
+                        });
+                        // console.log(`Fall A2: Assigned ${participantsMap.get(absentee.id)?.name} and ${participantsMap.get(partnerToAssign.id)?.name} to non-core ${targetSlot.categoryKey} on ${dateStr}`);
                         break;
                     }
                 }
@@ -416,79 +734,277 @@ export async function generateSchedule(year, month) {
         }
     }
 
-    console.log("C-Step: Attempting 2nd assignment for all participants with < 2 total, prioritizing by last month's total assignments.");
+    console.log("Start Step: Ensure all participants receive 2 assignments if possible.");
     if (MAX_ALLOWED_ASSIGNMENTS >= 2) {
-        const postLoopDailyAssignments_C = new Map();
-        for(let d = 1; d <= daysInMonth; d++) { const dateStrKey = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`; postLoopDailyAssignments_C.set(dateStrKey, new Set()); const dayScheduleFromMainLoop = scheduleData.find(ds => ds.date === dateStrKey); if (dayScheduleFromMainLoop) dayScheduleFromMainLoop.timeSlots.forEach(slot => slot.assigned.forEach(id => postLoopDailyAssignments_C.get(dateStrKey).add(id))); }
-        let participantsForCStep = activeParticipants.filter(p => (assignmentCounts.get(p.id)?.get('total') || 0) < 2 && (assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS);
-        if (participantsForCStep.length >= 2) {
-            console.log(`C-Step: Found ${participantsForCStep.length} participants with < 2 assignments.`);
-            let sortedParticipantsForCStep = [...participantsForCStep].sort((pA, pB) => { const prevTotalA = calculatedPrevTotalCounts.get(pA.id) || 0; const prevTotalB = calculatedPrevTotalCounts.get(pB.id) || 0; if (prevTotalA !== prevTotalB) return prevTotalA - prevTotalB; return pA.id - pB.id; });
-            const candidatePairsForC = []; const pairedIdsInCStepPass = new Set();
-            for (let i = 0; i < sortedParticipantsForCStep.length; i++) { const p1 = sortedParticipantsForCStep[i]; if (pairedIdsInCStepPass.has(p1.id) || (assignmentCounts.get(p1.id)?.get('total') || 0) >= 2 || (assignmentCounts.get(p1.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) continue; for (let j = i + 1; j < sortedParticipantsForCStep.length; j++) { const p2 = sortedParticipantsForCStep[j]; if (pairedIdsInCStepPass.has(p2.id) || (assignmentCounts.get(p2.id)?.get('total') || 0) >= 2 || (assignmentCounts.get(p2.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) continue; if (isPairingAllowed(p1.id, p2.id, participantsMap)) { candidatePairsForC.push({ p1: p1, p2: p2 }); pairedIdsInCStepPass.add(p1.id); pairedIdsInCStepPass.add(p2.id); break; } } } // Removed gender check
-            console.log(`C-Step: Generated ${candidatePairsForC.length} valid candidate pairs.`);
-            const remainingEmptySlots_C = []; scheduleData.forEach(daySch => daySch.timeSlots.forEach(slot => { if (slot.assigned.length === 0) remainingEmptySlots_C.push({ date: daySch.date, ...slot }); }));
-            console.log(`C-Step: Found ${remainingEmptySlots_C.length} empty slots.`);
-            let assignedInCStepCount = 0; remainingEmptySlots_C.sort(() => Math.random() - 0.5);
-            for (const pairToAssign of candidatePairsForC) { // candidatePairsForC now only contains valid pairs
-                const p1 = pairToAssign.p1; const p2 = pairToAssign.p2;
-                // This check might be redundant if candidatePairsForC is already filtered, but kept for safety for now.
-                if (((assignmentCounts.get(p1.id)?.get('total') || 0) >= 2 || (assignmentCounts.get(p1.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) && ((assignmentCounts.get(p2.id)?.get('total') || 0) >= 2 || (assignmentCounts.get(p2.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS)) continue;
-                let cStepAssignedThisPair = false;
-                for (const emptySlot of remainingEmptySlots_C) {
-                    if (emptySlot.cStepAssigned) continue; const currentDate_C = new Date(emptySlot.date); const currentWeek_C = getWeekOfMonth(currentDate_C); const dailyAssignedForThisDay_C = postLoopDailyAssignments_C.get(emptySlot.date);
-                    const p1CanBeAssigned = !dailyAssignedForThisDay_C.has(p1.id) && !participantWeeklyAssignments.get(p1.id)?.has(currentWeek_C) && (assignmentCounts.get(p1.id)?.get('total') || 0) < 2 && (assignmentCounts.get(p1.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS;
-                    const p2CanBeAssigned = !dailyAssignedForThisDay_C.has(p2.id) && !participantWeeklyAssignments.get(p2.id)?.has(currentWeek_C) && (assignmentCounts.get(p2.id)?.get('total') || 0) < 2 && (assignmentCounts.get(p2.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS;
-                    if (p1CanBeAssigned && p2CanBeAssigned) {
-                        // isPairingAllowed check is now done when creating candidatePairsForC
-                        const daySchToUpdate = scheduleData.find(ds => ds.date === emptySlot.date); const slotToUpdate = daySchToUpdate.timeSlots.find(s => s.time === emptySlot.time && s.type === emptySlot.type && s.categoryKey === emptySlot.categoryKey);
-                        slotToUpdate.assigned = [p1.id, p2.id]; slotToUpdate.assignedNames = [participantsMap.get(p1.id)?.name, participantsMap.get(p2.id)?.name]; slotToUpdate.isFixedStatus = [false, false]; dailyAssignedForThisDay_C.add(p1.id); dailyAssignedForThisDay_C.add(p2.id);
-                        [p1.id, p2.id].forEach(pid => { const counts = assignmentCounts.get(pid); counts.set('total', (counts.get('total') || 0) + 1); if (slotToUpdate.categoryKey) counts.set(slotToUpdate.categoryKey, (counts.get(slotToUpdate.categoryKey) || 0) + 1); participantWeeklyAssignments.get(pid).add(currentWeek_C); });
-                        assignedInCStepCount++; emptySlot.cStepAssigned = true; cStepAssignedThisPair = true; break;
-                    }
+        let participantsNeedingTwoAssignments = activeParticipants.filter(p => (assignmentCounts.get(p.id)?.get('total') || 0) < 2);
+        const currentDailyAssignments = new Map();
+        scheduleData.forEach(daySch => {
+            const dailySet = new Set();
+            daySch.timeSlots.forEach(slot => slot.assigned.forEach(id => dailySet.add(id)));
+            currentDailyAssignments.set(daySch.date, dailySet);
+        });
+        let emptySlotsForTwoAssgn = [];
+        scheduleData.forEach(daySch => {
+            daySch.timeSlots.forEach(ts => {
+                if (ts.assigned.length === 0) {
+                    emptySlotsForTwoAssgn.push({
+                        date: daySch.date,
+                        dayOfWeek: daySch.dayOfWeek,
+                        time: ts.time,
+                        type: ts.type,
+                        categoryKey: ts.categoryKey,
+                        slotObjRef: ts
+                    });
                 }
-                if (!cStepAssignedThisPair) console.log(`C-Step: Could not find a suitable slot for pair ${p1.name} & ${p2.name}.`);
+            });
+        });
+        emptySlotsForTwoAssgn.sort(() => Math.random() - 0.5);
+        let assignmentsMadeInThisStep = 0;
+        let iterationCount = 0;
+        const MAX_ITERATIONS_ENSURE_TWO = participantsNeedingTwoAssignments.length * emptySlotsForTwoAssgn.length + 10;
+        while (participantsNeedingTwoAssignments.length > 0 && emptySlotsForTwoAssgn.length > 0 && iterationCount < MAX_ITERATIONS_ENSURE_TWO) {
+            iterationCount++;
+            participantsNeedingTwoAssignments.sort((pA, pB) => {
+                const totalA = assignmentCounts.get(pA.id)?.get('total') || 0;
+                const totalB = assignmentCounts.get(pB.id)?.get('total') || 0;
+                if (totalA !== totalB) return totalA - totalB;
+                const prevTotalA = calculatedPrevTotalCounts.get(pA.id) || 0;
+                const prevTotalB = calculatedPrevTotalCounts.get(pB.id) || 0;
+                if (prevTotalA !== prevTotalB) return prevTotalA - prevTotalB;
+                return pA.id - pB.id;
+            });
+            let p1 = participantsNeedingTwoAssignments[0];
+            if ((assignmentCounts.get(p1.id)?.get('total') || 0) >= 2) {
+                participantsNeedingTwoAssignments.shift();
+                continue;
             }
-            if (assignedInCStepCount > 0) console.log(`C-Step: Assigned ${assignedInCStepCount} pairs.`);
-        } else console.log("C-Step: Not enough participants needing more assignments, or all eligible have 2 or met MAX_ALLOWED_ASSIGNMENTS.");
+            let suitableSlotFoundForP1 = false;
+            for (let i = 0; i < emptySlotsForTwoAssgn.length; i++) {
+                const slotToFill = emptySlotsForTwoAssgn[i];
+                const slotDateObj = new Date(slotToFill.date);
+                const slotWeek = getWeekOfMonth(slotDateObj);
+                const p1EnglishType = getEnglishParticipantType(p1.type);
+                if (p1EnglishType !== getEnglishParticipantType(slotToFill.type)) continue; // Compare English types
+                if (currentDailyAssignments.get(slotToFill.date)?.has(p1.id)) continue;
+                if ((assignmentCounts.get(p1.id)?.get('total') || 0) === 1 && participantWeeklyAssignments.get(p1.id)?.has(slotWeek)) continue;
+                let p2 = null;
+                for (const candidateP2 of participantsNeedingTwoAssignments) {
+                    const candidateP2EnglishType = getEnglishParticipantType(candidateP2.type);
+                    if (candidateP2.id === p1.id) continue;
+                    if ((assignmentCounts.get(candidateP2.id)?.get('total') || 0) >= 2) continue;
+                    if (candidateP2EnglishType !== getEnglishParticipantType(slotToFill.type)) continue; // Compare English types
+                    if (currentDailyAssignments.get(slotToFill.date)?.has(candidateP2.id)) continue;
+                    if ((assignmentCounts.get(candidateP2.id)?.get('total') || 0) === 1 && participantWeeklyAssignments.get(candidateP2.id)?.has(slotWeek)) continue;
+                    if (!isPairingAllowed(p1.id, candidateP2.id, participantsMap)) continue;
+                    p2 = candidateP2;
+                    break;
+                }
+                if (!p2) {
+                    let otherPotentialPartners = activeParticipants.filter(candP => {
+                        const candPEnglishType = getEnglishParticipantType(candP.type);
+                        return candP.id !== p1.id &&
+                        (assignmentCounts.get(candP.id)?.get('total') || 0) < 2 &&
+                        candPEnglishType === getEnglishParticipantType(slotToFill.type) && // Compare English types
+                        !currentDailyAssignments.get(slotToFill.date)?.has(candP.id) &&
+                        !((assignmentCounts.get(candP.id)?.get('total') || 0) === 1 && participantWeeklyAssignments.get(candP.id)?.has(slotWeek)) &&
+                        isPairingAllowed(p1.id, candP.id, participantsMap);
+                    });
+                    otherPotentialPartners.sort((a,b) => (assignmentCounts.get(a.id)?.get('total') || 0) - (assignmentCounts.get(b.id)?.get('total') || 0));
+                    if(otherPotentialPartners.length > 0) p2 = otherPotentialPartners[0];
+                }
+                if (p2) {
+                    const actualSlot = slotToFill.slotObjRef;
+                    actualSlot.assigned = [p1.id, p2.id];
+                    actualSlot.assignedNames = [participantsMap.get(p1.id)?.name, participantsMap.get(p2.id)?.name];
+                    actualSlot.isFixedStatus = [false, false];
+                    [p1.id, p2.id].forEach(pid => {
+                        const counts = assignmentCounts.get(pid);
+                        counts.set('total', (counts.get('total') || 0) + 1);
+                        if (actualSlot.categoryKey) counts.set(actualSlot.categoryKey, (counts.get(actualSlot.categoryKey) || 0) + 1);
+                        participantWeeklyAssignments.get(pid).add(slotWeek);
+                    });
+                    if (!currentDailyAssignments.has(slotToFill.date)) currentDailyAssignments.set(slotToFill.date, new Set());
+                    currentDailyAssignments.get(slotToFill.date).add(p1.id);
+                    currentDailyAssignments.get(slotToFill.date).add(p2.id);
+                    emptySlotsForTwoAssgn.splice(i, 1);
+                    assignmentsMadeInThisStep++;
+                    suitableSlotFoundForP1 = true;
+                    // console.log(`Ensure2Step: Assigned ${p1.name} and ${p2.name} to ${actualSlot.categoryKey} on ${slotToFill.date} ${actualSlot.time}. P1 total: ${assignmentCounts.get(p1.id)?.get('total')}, P2 total: ${assignmentCounts.get(p2.id)?.get('total')}`);
+                    break;
+                }
+            }
+            if (!suitableSlotFoundForP1) {
+                // console.log(`Ensure2Step: Could not find suitable slot/partner for ${p1.name} (current total: ${assignmentCounts.get(p1.id)?.get('total')}). Removing from consideration.`);
+                participantsNeedingTwoAssignments.shift();
+            }
+            participantsNeedingTwoAssignments = activeParticipants.filter(p => (assignmentCounts.get(p.id)?.get('total') || 0) < 2);
+        }
+        if (iterationCount >= MAX_ITERATIONS_ENSURE_TWO) {
+            console.warn("Ensure2Step: Max iterations reached. Exiting loop.");
+        }
+        // console.log(`Ensure2Step: Made ${assignmentsMadeInThisStep} new pair assignments.`);
+        participantsNeedingTwoAssignments = activeParticipants.filter(p => (assignmentCounts.get(p.id)?.get('total') || 0) < 2);
+        if(participantsNeedingTwoAssignments.length > 0){
+            // console.log(`Ensure2Step: ${participantsNeedingTwoAssignments.length} participants still have < 2 assignments: ` + participantsNeedingTwoAssignments.map(p => `${p.name} (${assignmentCounts.get(p.id)?.get('total')})`).join(', '));
+        } else {
+            // console.log("Ensure2Step: All active participants have at least 2 assignments or no more assignable slots/pairs.");
+        }
+    }
+
+    for (let targetCount = 3; targetCount <= 5; targetCount++) {
+        // console.log(`Start Step: Attempting to bring participants to ${targetCount} assignments.`);
+        let participantsBelowTarget = activeParticipants.filter(p => (assignmentCounts.get(p.id)?.get('total') || 0) < targetCount);
+        if (participantsBelowTarget.length === 0) {
+            // console.log(`IncrementalAssignStep (${targetCount}): No participants below ${targetCount} assignments.`);
+            continue;
+        }
+        participantsBelowTarget.sort((pA, pB) => {
+            const prevTotalA = calculatedPrevTotalCounts.get(pA.id) || 0;
+            const prevTotalB = calculatedPrevTotalCounts.get(pB.id) || 0;
+            if (prevTotalA !== prevTotalB) return prevTotalA - prevTotalB;
+            return Math.random() - 0.5;
+        });
+        const currentDailyAssignmentsIncremental = new Map();
+        scheduleData.forEach(daySch => {
+            const dailySet = new Set();
+            daySch.timeSlots.forEach(slot => slot.assigned.forEach(id => dailySet.add(id)));
+            currentDailyAssignmentsIncremental.set(daySch.date, dailySet);
+        });
+        let availableEmptySlotsIncremental = [];
+        scheduleData.forEach(daySch => {
+            daySch.timeSlots.forEach(ts => {
+                if (ts.assigned.length === 0) {
+                    availableEmptySlotsIncremental.push({
+                        date: daySch.date,
+                        dayOfWeek: daySch.dayOfWeek,
+                        time: ts.time,
+                        type: ts.type,
+                        categoryKey: ts.categoryKey,
+                        slotObjRef: ts
+                    });
+                }
+            });
+        });
+        availableEmptySlotsIncremental.sort(() => Math.random() - 0.5);
+        let assignmentsMadeThisTargetCount = 0;
+        let p1Index = 0;
+        while (p1Index < participantsBelowTarget.length && availableEmptySlotsIncremental.length > 0) {
+            let p1 = participantsBelowTarget[p1Index];
+            if ((assignmentCounts.get(p1.id)?.get('total') || 0) >= targetCount) {
+                p1Index++;
+                continue;
+            }
+            let suitableSlotFoundForP1 = false;
+            for (let slotIndex = 0; slotIndex < availableEmptySlotsIncremental.length; slotIndex++) {
+                const slotToFill = availableEmptySlotsIncremental[slotIndex];
+                const slotDateObj = new Date(slotToFill.date);
+                const slotWeek = getWeekOfMonth(slotDateObj);
+                const p1EnglishType = getEnglishParticipantType(p1.type);
+                if (p1EnglishType !== getEnglishParticipantType(slotToFill.type)) continue; // Compare English types
+                if (currentDailyAssignmentsIncremental.get(slotToFill.date)?.has(p1.id)) continue;
+                if (participantWeeklyAssignments.get(p1.id)?.has(slotWeek)) continue;
+                let p2 = null;
+                let potentialPartners = activeParticipants.filter(candP => {
+                    const candPEnglishType = getEnglishParticipantType(candP.type);
+                    if (candP.id === p1.id) return false;
+                    if ((assignmentCounts.get(candP.id)?.get('total') || 0) >= targetCount) return false;
+                    if (candPEnglishType !== getEnglishParticipantType(slotToFill.type)) return false; // Compare English types
+                    if (currentDailyAssignmentsIncremental.get(slotToFill.date)?.has(candP.id)) return false;
+                    if (participantWeeklyAssignments.get(candP.id)?.has(slotWeek)) return false;
+                    return isPairingAllowed(p1.id, candP.id, participantsMap);
+                });
+                potentialPartners.sort((a,b) => (assignmentCounts.get(a.id)?.get('total') || 0) - (assignmentCounts.get(b.id)?.get('total') || 0));
+                if (potentialPartners.length > 0) {
+                    p2 = potentialPartners[0];
+                }
+                if (p2) {
+                    const actualSlot = slotToFill.slotObjRef;
+                    actualSlot.assigned = [p1.id, p2.id];
+                    actualSlot.assignedNames = [participantsMap.get(p1.id)?.name, participantsMap.get(p2.id)?.name];
+                    actualSlot.isFixedStatus = [false, false];
+                    [p1.id, p2.id].forEach(pid => {
+                        const counts = assignmentCounts.get(pid);
+                        counts.set('total', (counts.get('total') || 0) + 1);
+                        if (actualSlot.categoryKey) counts.set(actualSlot.categoryKey, (counts.get(actualSlot.categoryKey) || 0) + 1);
+                        participantWeeklyAssignments.get(pid).add(slotWeek);
+                    });
+                    if (!currentDailyAssignmentsIncremental.has(slotToFill.date)) currentDailyAssignmentsIncremental.set(slotToFill.date, new Set());
+                    currentDailyAssignmentsIncremental.get(slotToFill.date).add(p1.id);
+                    currentDailyAssignmentsIncremental.get(slotToFill.date).add(p2.id);
+                    availableEmptySlotsIncremental.splice(slotIndex, 1);
+                    assignmentsMadeThisTargetCount++;
+                    suitableSlotFoundForP1 = true;
+                    // console.log(`IncrementalAssignStep (${targetCount}): Assigned ${p1.name} (now ${assignmentCounts.get(p1.id)?.get('total')}) and ${p2.name} (now ${assignmentCounts.get(p2.id)?.get('total')}) to ${actualSlot.categoryKey} on ${slotToFill.date}`);
+                    if((assignmentCounts.get(p2.id)?.get('total') || 0) >= targetCount) {
+                        participantsBelowTarget = participantsBelowTarget.filter(p => p.id !== p2.id || (assignmentCounts.get(p.id)?.get('total') || 0) < targetCount );
+                    }
+                    break;
+                }
+            }
+            if (!suitableSlotFoundForP1) {
+                // console.log(`IncrementalAssignStep (${targetCount}): Could not find slot/partner for ${p1.name} (total: ${assignmentCounts.get(p1.id)?.get('total')}).`);
+            }
+            p1Index++;
+            if (suitableSlotFoundForP1 && (assignmentCounts.get(p1.id)?.get('total') || 0) >= targetCount) {
+                 participantsBelowTarget = activeParticipants.filter(p => (assignmentCounts.get(p.id)?.get('total') || 0) < targetCount);
+                 participantsBelowTarget.sort((pA, pB) => {
+                    const prevTotalA = calculatedPrevTotalCounts.get(pA.id) || 0;
+                    const prevTotalB = calculatedPrevTotalCounts.get(pB.id) || 0;
+                    if (prevTotalA !== prevTotalB) return prevTotalA - prevTotalB;
+                    return Math.random() - 0.5;
+                });
+                p1Index = 0;
+            }
+        }
+        // console.log(`IncrementalAssignStep (${targetCount}): Made ${assignmentsMadeThisTargetCount} new pair assignments.`);
+        const stillBelowTarget = activeParticipants.filter(p => (assignmentCounts.get(p.id)?.get('total') || 0) < targetCount);
+        if (stillBelowTarget.length > 0) {
+            // console.log(`IncrementalAssignStep (${targetCount}): ${stillBelowTarget.length} participants still have < ${targetCount} assignments: ` + stillBelowTarget.map(p => `${p.name} (${assignmentCounts.get(p.id)?.get('total')})`).join(', '));
+        } else {
+            // console.log(`IncrementalAssignStep (${targetCount}): All targeted participants have at least ${targetCount} assignments or no more assignable slots/pairs.`);
+        }
     }
 
     console.log("D-Step: Final random assignments for any remaining slots.");
     const postLoopDailyAssignments_D = new Map();
-    for(let d = 1; d <= daysInMonth; d++) { const dateStrKey = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`; postLoopDailyAssignments_D.set(dateStrKey, new Set()); const dayScheduleFromCurrent = scheduleData.find(ds => ds.date === dateStrKey); if (dayScheduleFromCurrent) dayScheduleFromCurrent.timeSlots.forEach(slot => slot.assigned.forEach(id => postLoopDailyAssignments_D.get(dateStrKey).add(id))); }
-    let dStepAssignedCount = 0; const emptySlotsForDStep = [];
+    scheduleData.forEach(daySch => {
+        const dailySet = new Set();
+        daySch.timeSlots.forEach(slot => slot.assigned.forEach(id => dailySet.add(id)));
+        postLoopDailyAssignments_D.set(daySch.date, dailySet);
+    });
+    let dStepAssignedCount = 0;
+    const emptySlotsForDStep = [];
     scheduleData.forEach(daySch => daySch.timeSlots.forEach(slot => { if (slot.assigned.length === 0) emptySlotsForDStep.push({ date: daySch.date, ...slot }); }));
+
     if (emptySlotsForDStep.length > 0) {
-        console.log(`D-Step: Found ${emptySlotsForDStep.length} empty slots for final assignment.`);
+        // console.log(`D-Step: Found ${emptySlotsForDStep.length} empty slots for final assignment.`);
         emptySlotsForDStep.sort(() => Math.random() - 0.5);
         for (const emptySlot of emptySlotsForDStep) {
             const daySchToUpdate = scheduleData.find(ds => ds.date === emptySlot.date); const slotToUpdate = daySchToUpdate?.timeSlots.find(s => s.time === emptySlot.time && s.type === emptySlot.type && s.categoryKey === emptySlot.categoryKey); if (!slotToUpdate || slotToUpdate.assigned.length > 0) continue;
             const currentDateD = new Date(emptySlot.date); const currentWeekD = getWeekOfMonth(currentDateD); const dailyAssignedForThisDay_D = postLoopDailyAssignments_D.get(emptySlot.date);
-            // D-Step: Make potentialP1List_D more aggressive
             let potentialP1List_D = activeParticipants.filter(p =>
                 !dailyAssignedForThisDay_D.has(p.id)
             );
             if (potentialP1List_D.length === 0) continue;
             const tempSlotInfoForDSort = { categoryKey: emptySlot.categoryKey || 'general_D_step_sort' };
-            const sortedPotentialP1_D = potentialP1List_D.map(p => getEnhancedParticipantData(p, tempSlotInfoForDSort, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => { const totalA_D = assignmentCounts.get(a.id)?.get('total') || 0; const totalB_D = assignmentCounts.get(b.id)?.get('total') || 0; if (totalA_D !== totalB_D) return totalA_D - totalB_D; return Math.random() - 0.5; });
+            const sortedPotentialP1_D = potentialP1List_D.map(p => getEnhancedParticipantData(p, tempSlotInfoForDSort, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES_MAP, calculatedPrevTotalCounts)).sort((a,b) => { const totalA_D = assignmentCounts.get(a.id)?.get('total') || 0; const totalB_D = assignmentCounts.get(b.id)?.get('total') || 0; if (totalA_D !== totalB_D) return totalA_D - totalB_D; return Math.random() - 0.5; });
             if (sortedPotentialP1_D.length === 0) continue;
             let p1_D = null, p2_D = null;
             for (const p1Data_D of sortedPotentialP1_D) {
-                const candidateP1 = p1Data_D.obj; if (dailyAssignedForThisDay_D.has(candidateP1.id)) continue; // Simpler check for P1, weekly/max already removed
-                // D-Step: Make potentialPartners_D more aggressive
+                const candidateP1 = p1Data_D.obj; if (dailyAssignedForThisDay_D.has(candidateP1.id)) continue;
                 let potentialPartners_D = activeParticipants.filter(p =>
                     p.id !== candidateP1.id &&
                     !dailyAssignedForThisDay_D.has(p.id)
                 );
                 if (potentialPartners_D.length > 0) {
-                    const sortedPotentialPartners_D = potentialPartners_D.map(p => getEnhancedParticipantData(p, tempSlotInfoForDSort, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => { const totalA_DP = assignmentCounts.get(a.id)?.get('total') || 0; const totalB_DP = assignmentCounts.get(b.id)?.get('total') || 0; if (totalA_DP !== totalB_DP) return totalA_DP - totalB_DP; return Math.random() - 0.5; });
+                    const sortedPotentialPartners_D = potentialPartners_D.map(p => getEnhancedParticipantData(p, tempSlotInfoForDSort, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES_MAP, calculatedPrevTotalCounts)).sort((a,b) => { const totalA_DP = assignmentCounts.get(a.id)?.get('total') || 0; const totalB_DP = assignmentCounts.get(b.id)?.get('total') || 0; if (totalA_DP !== totalB_DP) return totalA_DP - totalB_DP; return Math.random() - 0.5; });
                     for (const p2Data_D_partner of sortedPotentialPartners_D) {
                         const candidateP2 = p2Data_D_partner.obj;
                         if (isPairingAllowed(candidateP1.id, candidateP2.id, participantsMap)) {
                             p1_D = candidateP1; p2_D = candidateP2; break;
                         }
                     }
-                    if (p1_D && p2_D) break; // Found a valid pair for p1_D
+                    if (p1_D && p2_D) break;
                 }
             }
             if (p1_D && p2_D) {
@@ -499,23 +1015,22 @@ export async function generateSchedule(year, month) {
             }
         }
     }
-    if (dStepAssignedCount > 0) console.log(`D-Step: Assigned ${dStepAssignedCount} additional pairs.`);
+    // if (dStepAssignedCount > 0) console.log(`D-Step: Assigned ${dStepAssignedCount} additional pairs.`);
     
     await db.saveSchedule(year, month, scheduleData);
     let summaryLines = ["초등학생 배정 현황 요약:"];
     const elementaryStudentCounts = new Map();
     for (const participant of participants) {
-        if (participant.type === '초등') {
+        if (getEnglishParticipantType(participant.type) === 'elementary') {
             const studentId = participant.id;
             const studentName = participant.name;
-            const studentAssignmentCountsMap = assignmentCounts.get(studentId); // This is a Map
+            const studentAssignmentCountsMap = assignmentCounts.get(studentId);
             const totalAssignments = studentAssignmentCountsMap?.get('total') || 0;
-
             let categoryDetails = [];
             if (studentAssignmentCountsMap) {
                 for (const [categoryKey, count] of studentAssignmentCountsMap.entries()) {
                     if (categoryKey !== 'total' && count > 0) {
-                        categoryDetails.push(`${categoryKey}: ${count}회`); // Use raw categoryKey
+                        categoryDetails.push(`${categoryKey}: ${count}회`);
                     }
                 }
             }
@@ -539,17 +1054,16 @@ export async function generateSchedule(year, month) {
         }
         if (formattedAssignmentData.length > 0) {
             await db.saveMonthlyAssignmentCounts(year, month, formattedAssignmentData);
-            console.log(`Monthly assignment counts for ${year}-${month} saved.`);
+            // console.log(`Monthly assignment counts for ${year}-${month} saved.`);
         }
     } catch (error) { console.error(`Failed to save monthly assignment counts for ${year}-${month}:`, error); }
-    if (absenteesForSecondRandomRound.size > 0) {
-        console.log(`Participants targeted for a potential 2nd random assignment (due to reduced core slots):`, Array.from(absenteesForSecondRandomRound));
-        absenteesForSecondRandomRound.forEach(absenteeId => {
-            const absentee = participantsMap.get(absenteeId);
-            if (absentee && (fixedAbsenteeAssignments.get(absenteeId) || 0) < 2) {
-                 console.log(`Participant ${absentee.name} (ID: ${absenteeId}, Type: ${absentee.type}) still needs ${2 - (fixedAbsenteeAssignments.get(absenteeId) || 0)} core assignments, targeted for random.`);
-            }
-        });
-    }
-    return { schedule: scheduleData, assignmentSummary: summaryString };
+    // console.log("Final check on absentee core assignments:");
+    absenteesForCore.forEach(absentee => {
+        const coreCount = absenteeCoreAssignmentsCount.get(absentee.id) || 0;
+        if (coreCount < 2) {
+            console.warn(`WARN: Absentee ${participantsMap.get(absentee.id)?.name} (ID: ${absentee.id}) has ${coreCount} core assignments (target was 2). Total assignments: ${assignmentCounts.get(absentee.id)?.get('total')}`);
+        }
+    });
+
+    return { schedule: scheduleData, assignmentSummary: summaryString, assignmentCounts: assignmentCounts };
 }
