@@ -360,7 +360,7 @@ export async function openScheduleInspectionModal(year, month) {
         } else {
             inspectionModalMessageDiv.textContent = ''; // Clear previous messages if no new message
         }
-        renderInspectionTable(result.analysis, result.uniqueCategoryKeys);
+        renderInspectionTable(result.analysis, result.uniqueCategoryKeys, result.prevMonthAbsentees || []);
         if (result.analysis && result.analysis.length > 0 && !result.message && !result.error) {
             inspectionModalMessageDiv.textContent = `${year}년 ${month}월 배정 현황 (총 배정 많은 순). 붉은색 숫자는 결석자 우선 배정 횟수입니다.`;
             inspectionModalMessageDiv.className = 'my-2 text-sm text-slate-600';
@@ -419,7 +419,7 @@ async function handleViewExistingSchedule() {
 // The button click will be handled by handleInspectScheduleButtonClick
 
 // --- START OF MODIFIED renderInspectionTable FUNCTION ---
-export function renderInspectionTable(analysisData, uniqueCategoryKeys) { // Added export
+export function renderInspectionTable(analysisData, uniqueCategoryKeys, prevMonthAbsentees = []) { // Added export
     // Defensive check for modal elements, try to get them if not available.
     if (!inspectionModal || !inspectionTableBody || !inspectionTableHeaderRow) {
         inspectionModal = document.getElementById('scheduleInspectionModal');
@@ -487,6 +487,12 @@ export function renderInspectionTable(analysisData, uniqueCategoryKeys) { // Add
         tdName.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-800 font-medium';
         tdName.textContent = participantAnalysis.participantName;
 
+        if (participantAnalysis.participantId && prevMonthAbsentees && prevMonthAbsentees.includes(participantAnalysis.participantId)) {
+            tdName.style.color = 'red';
+        } else {
+            tdName.style.color = ''; // Ensure default color if not an absentee
+        }
+
         // '총 배정' Cell
         const tdTotal = tr.insertCell();
         tdTotal.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-600 text-center';
@@ -527,6 +533,23 @@ export function closeScheduleInspectionModal() { // Added export
 async function loadInitialScheduleForCurrentDate() {
     const year = parseInt(yearInput.value);
     const month = parseInt(monthInput.value);
+    let prevMonthAbsentees = [];
+
+    if (year && month >= 1 && month <= 12) { // Check if year and month are valid
+        let prevScheduleYear = year;
+        let prevScheduleMonth = month - 1;
+        if (prevScheduleMonth === 0) {
+            prevScheduleMonth = 12;
+            prevScheduleYear--;
+        }
+        try {
+            prevMonthAbsentees = await db.getAbsenteesForMonth(prevScheduleYear, prevScheduleMonth);
+        } catch (e) {
+            console.error("Failed to fetch prev month absentees in loadInitialScheduleForCurrentDate", e);
+            // prevMonthAbsentees remains []
+        }
+    }
+
     if (year && month) {
         try {
             const scheduleObject = await db.getSchedule(year, month);
@@ -535,15 +558,15 @@ async function loadInitialScheduleForCurrentDate() {
             allParticipants.forEach(p => participantsMap.set(p.id, p));
 
             if (scheduleObject && scheduleObject.data) {
-                renderCalendar(year, month, scheduleObject.data, participantsMap);
+                renderCalendar(year, month, scheduleObject.data, participantsMap, prevMonthAbsentees);
                 displayMessage('기존 생성된 일정을 불러왔습니다.', 'info');
             } else {
-                renderCalendar(year, month, null, participantsMap);
+                renderCalendar(year, month, null, participantsMap, prevMonthAbsentees);
                 displayMessage('선택한 년/월의 저장된 일정이 없거나 비어있습니다. 새로 생성하세요.', 'info');
             }
         } catch (error) {
             console.error("Failed to load initial schedule:", error);
-            renderCalendar(year, month, null, new Map());
+            renderCalendar(year, month, null, new Map(), prevMonthAbsentees);
             displayMessage('일정 로드 중 오류 발생.', 'error');
         }
     }

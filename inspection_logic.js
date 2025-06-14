@@ -36,6 +36,21 @@ function getAllCategoryKeys() {
 }
 
 export async function analyzeScheduleForInspection(year, month) {
+    let prevInspectionYear = year;
+    let prevInspectionMonth = month - 1;
+    if (prevInspectionMonth === 0) {
+        prevInspectionMonth = 12;
+        prevInspectionYear--;
+    }
+
+    let prevMonthAbsentees = [];
+    try {
+        prevMonthAbsentees = await db.getAbsenteesForMonth(prevInspectionYear, prevInspectionMonth);
+    } catch (error) {
+        console.error(`Error fetching previous month absentees for inspection of ${year}-${month}:`, error);
+        // prevMonthAbsentees will remain empty, modal can still display schedule analysis
+    }
+
     const scheduleObject = await db.getSchedule(year, month);
     const participants = await db.getAllParticipants();
 
@@ -96,7 +111,8 @@ export async function analyzeScheduleForInspection(year, month) {
         return {
             message: "해당 월에 생성된 일정이 없습니다.",
             analysis: resultForNoSchedule,
-            uniqueCategoryKeys: newAggregatedCategoryKeys
+            uniqueCategoryKeys: newAggregatedCategoryKeys,
+            prevMonthAbsentees // Include here as well
         };
     }
 
@@ -185,6 +201,7 @@ export async function analyzeScheduleForInspection(year, month) {
 
     return {
         analysis: finalAnalysis,
-        uniqueCategoryKeys: newAggregatedCategoryKeys
+        uniqueCategoryKeys: newAggregatedCategoryKeys,
+        prevMonthAbsentees
     };
 }
