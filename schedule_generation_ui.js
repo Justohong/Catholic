@@ -453,7 +453,7 @@ export function renderInspectionTable(analysisData, uniqueCategoryKeys, prevMont
 
     // 1. Create Table Header
     const headerCellClasses = 'px-2 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider';
-    const headerTitles = ['초중구분', '이름', '총 배정', '새벽', '1차랜덤', '2차랜덤']; // New fixed headers
+    const headerTitles = ['초중구분', '이름', '총 배정', '새벽', '1차랜덤', '2차랜덤', '기타']; // New fixed headers
 
     headerTitles.forEach(title => {
         const th = document.createElement('th');
@@ -499,7 +499,7 @@ export function renderInspectionTable(analysisData, uniqueCategoryKeys, prevMont
         tdTotal.textContent = participantAnalysis.totalAssignments;
 
         // Aggregated Category Cells ('새벽', '1차랜덤', '2차랜덤')
-        const aggregatedKeysToDisplay = ['새벽', '1차랜덤', '2차랜덤'];
+        const aggregatedKeysToDisplay = ['새벽', '1차랜덤', '2차랜덤', '기타'];
 
         aggregatedKeysToDisplay.forEach(aggKey => {
             const tdAgg = tr.insertCell();
