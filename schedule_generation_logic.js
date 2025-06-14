@@ -207,6 +207,16 @@ export async function generateSchedule(year, month) {
             });
         }
 
+        // Sort slots on Tuesday or Thursday if vacation slots might have been added
+        if (dayOfWeekNumeric === 2 || dayOfWeekNumeric === 4) { // Tuesday or Thursday
+            slotsForDay.sort((a, b) => {
+                // Simple string comparison works for "HH:MM" format
+                if (a.time < b.time) return -1;
+                if (a.time > b.time) return 1;
+                return 0;
+            });
+        }
+
         for (const slotInfo of slotsForDay) {
             let assignedPair = []; let fixedAssigneeId = null;
             const originalTargetPool = slotInfo.type === 'elementary' ? elementaryParticipants : middleParticipants;
@@ -454,15 +464,22 @@ export async function generateSchedule(year, month) {
         for (const emptySlot of emptySlotsForDStep) {
             const daySchToUpdate = scheduleData.find(ds => ds.date === emptySlot.date); const slotToUpdate = daySchToUpdate?.timeSlots.find(s => s.time === emptySlot.time && s.type === emptySlot.type && s.categoryKey === emptySlot.categoryKey); if (!slotToUpdate || slotToUpdate.assigned.length > 0) continue;
             const currentDateD = new Date(emptySlot.date); const currentWeekD = getWeekOfMonth(currentDateD); const dailyAssignedForThisDay_D = postLoopDailyAssignments_D.get(emptySlot.date);
-            let potentialP1List_D = activeParticipants.filter(p => !dailyAssignedForThisDay_D.has(p.id) && !participantWeeklyAssignments.get(p.id)?.has(currentWeekD) && (assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS);
+            // D-Step: Make potentialP1List_D more aggressive
+            let potentialP1List_D = activeParticipants.filter(p =>
+                !dailyAssignedForThisDay_D.has(p.id)
+            );
             if (potentialP1List_D.length === 0) continue;
             const tempSlotInfoForDSort = { categoryKey: emptySlot.categoryKey || 'general_D_step_sort' };
             const sortedPotentialP1_D = potentialP1List_D.map(p => getEnhancedParticipantData(p, tempSlotInfoForDSort, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => { const totalA_D = assignmentCounts.get(a.id)?.get('total') || 0; const totalB_D = assignmentCounts.get(b.id)?.get('total') || 0; if (totalA_D !== totalB_D) return totalA_D - totalB_D; return Math.random() - 0.5; });
             if (sortedPotentialP1_D.length === 0) continue;
             let p1_D = null, p2_D = null;
             for (const p1Data_D of sortedPotentialP1_D) {
-                const candidateP1 = p1Data_D.obj; if (dailyAssignedForThisDay_D.has(candidateP1.id) || participantWeeklyAssignments.get(candidateP1.id)?.has(currentWeekD)) continue;
-                let potentialPartners_D = activeParticipants.filter(p => p.id !== candidateP1.id && !dailyAssignedForThisDay_D.has(p.id) && !participantWeeklyAssignments.get(p.id)?.has(currentWeekD) && (assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS); // Removed gender check
+                const candidateP1 = p1Data_D.obj; if (dailyAssignedForThisDay_D.has(candidateP1.id)) continue; // Simpler check for P1, weekly/max already removed
+                // D-Step: Make potentialPartners_D more aggressive
+                let potentialPartners_D = activeParticipants.filter(p =>
+                    p.id !== candidateP1.id &&
+                    !dailyAssignedForThisDay_D.has(p.id)
+                );
                 if (potentialPartners_D.length > 0) {
                     const sortedPotentialPartners_D = potentialPartners_D.map(p => getEnhancedParticipantData(p, tempSlotInfoForDSort, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => { const totalA_DP = assignmentCounts.get(a.id)?.get('total') || 0; const totalB_DP = assignmentCounts.get(b.id)?.get('total') || 0; if (totalA_DP !== totalB_DP) return totalA_DP - totalB_DP; return Math.random() - 0.5; });
                     for (const p2Data_D_partner of sortedPotentialPartners_D) {
