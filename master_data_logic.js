@@ -6,6 +6,7 @@ export const itemsPerPage = 10;
 export let totalPages = 1;
 let participantsCache = [];
 let selectedParticipantIds = new Set();
+let currentCopyTypeFilter = 'all'; // Possible values: 'all', '소복사'
 
 async function loadAndRenderParticipants(forceReloadFromDB = false) {
     try {
@@ -13,7 +14,12 @@ async function loadAndRenderParticipants(forceReloadFromDB = false) {
             participantsCache = await db.getAllParticipants();
         }
 
-        const totalParticipantsCount = participantsCache.length;
+        let participantsToRender = participantsCache;
+        if (currentCopyTypeFilter === '소복사') {
+            participantsToRender = participantsCache.filter(p => p.copyType === '소복사');
+        }
+
+        const totalParticipantsCount = participantsToRender.length; // Use participantsToRender
         totalPages = Math.ceil(totalParticipantsCount / itemsPerPage);
         if (totalPages === 0) totalPages = 1;
 
@@ -26,7 +32,7 @@ async function loadAndRenderParticipants(forceReloadFromDB = false) {
 
         const startIndex = (currentPage - 1) * itemsPerPage;
         const endIndex = startIndex + itemsPerPage;
-        const participantsForPage = participantsCache.slice(startIndex, endIndex);
+        const participantsForPage = participantsToRender.slice(startIndex, endIndex); // Use participantsToRender
 
         renderMasterDataTable(participantsForPage, handleEditAction, handleDeleteAction, handleSelectionChange);
         // UI layer (master_data_ui.js) will call renderPaginationControls by importing currentPage and totalPages
@@ -73,6 +79,7 @@ async function handleSaveEditParticipant(event) {
         name: formData.get('name'),
         gender: formData.get('gender'),
         type: formData.get('type'),
+        copyType: formData.get('copyType') || '', // 복사구분
         isActive: true // Assuming isActive is always true or handle it in form
     };
 
@@ -197,6 +204,7 @@ function handleExcelUpload(file) {
             const nameIndex = header.indexOf('이름');
             const genderIndex = header.indexOf('성별');
             const typeIndex = header.indexOf('초중구분');
+            const copyTypeIndex = header.indexOf('복사구분'); // 복사구분
             const studentPhoneIndex = header.indexOf('학생 연락처'); // Corrected typo
             const parentPhoneIndex = header.indexOf('부모 연락처');
 
@@ -225,6 +233,7 @@ function handleExcelUpload(file) {
                 const name = row[nameIndex] ? row[nameIndex].toString().trim() : null;
                 const gender = row[genderIndex] ? row[genderIndex].toString().trim() : null;
                 const type = row[typeIndex] ? row[typeIndex].toString().trim() : null;
+                const copyType = copyTypeIndex !== -1 && row[copyTypeIndex] ? row[copyTypeIndex].toString().trim() : ''; // 복사구분
 
                 let studentPhone = null;
                 if (studentPhoneIndex !== -1 && row[studentPhoneIndex]) {
@@ -256,6 +265,7 @@ function handleExcelUpload(file) {
                     name,
                     gender,
                     type,
+                    copyType, // 복사구분
                     studentPhone: studentPhone || '',
                     parentPhone: parentPhone || '',
                     isActive: true
@@ -301,4 +311,49 @@ export function initMasterDataModule(containerId) {
         editForm.addEventListener('submit', handleSaveEditParticipant);
     }
     loadAndRenderParticipants();
+
+    // Add listener for the new Excel template download button
+    const downloadTemplateBtn = document.getElementById('downloadExcelTemplateBtn');
+    if (downloadTemplateBtn) {
+        downloadTemplateBtn.addEventListener('click', handleDownloadExcelTemplate);
+    }
+
+    const filterSmallCopyButton = document.getElementById('filterSmallCopyBtn');
+    if (filterSmallCopyButton) {
+        filterSmallCopyButton.addEventListener('click', toggleSmallCopyFilter);
+    }
+}
+
+// Function to handle Excel template download
+function handleDownloadExcelTemplate() {
+    const headers = ["이름", "성별", "초중구분", "복사구분", "학생 연락처", "부모 연락처"];
+    const worksheet = XLSX.utils.aoa_to_sheet([headers]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "양식");
+    XLSX.writeFile(workbook, "기준정보_업로드_양식.xlsx");
+}
+
+// Function to toggle 소복사 filter
+async function toggleSmallCopyFilter() {
+    const filterBtn = document.getElementById('filterSmallCopyBtn');
+    if (currentCopyTypeFilter === '소복사') {
+        currentCopyTypeFilter = 'all';
+        if (filterBtn) {
+            filterBtn.classList.remove('btn-sky-600', 'text-white');
+            filterBtn.classList.add('btn-secondary');
+            filterBtn.innerHTML = '<i data-lucide="users" class="mr-2 h-5 w-5"></i>소복사 관리';
+        }
+    } else {
+        currentCopyTypeFilter = '소복사';
+        if (filterBtn) {
+            filterBtn.classList.remove('btn-secondary');
+            filterBtn.classList.add('btn-sky-600', 'text-white');
+            filterBtn.innerHTML = '<i data-lucide="user-check" class="mr-2 h-5 w-5"></i>전체 보기';
+        }
+    }
+    if (typeof lucide !== 'undefined') {
+         lucide.createIcons();
+    }
+    currentPage = 1;
+    await loadAndRenderParticipants(false);
 }

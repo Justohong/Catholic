@@ -76,8 +76,43 @@ function compareEnhancedParticipants(aData, bData, prioritizeZeroCurrentMonthTot
     return aData.id - bData.id;
 }
 
+// Helper function to check if pairing two participants is allowed
+function isPairingAllowed(p1_id, p2_id, participantsMap) {
+    const p1_copyType = participantsMap.get(p1_id)?.copyType;
+    const p2_copyType = participantsMap.get(p2_id)?.copyType;
+    if (p1_copyType === '소복사' && p2_copyType === '소복사') {
+        return false; // Pairing of two '소복사' is not allowed
+    }
+    return true;
+}
+
 export async function generateSchedule(year, month) {
     const MAX_ALLOWED_ASSIGNMENTS = 3;
+
+    const vacationStartDateStr = sessionStorage.getItem('vacationStartDate');
+    const vacationEndDateStr = sessionStorage.getItem('vacationEndDate');
+    let vacationStartDate = null;
+    let vacationEndDate = null;
+
+    if (vacationStartDateStr && vacationEndDateStr) {
+        vacationStartDate = new Date(vacationStartDateStr);
+        vacationEndDate = new Date(vacationEndDateStr); // Corrected from endDateStr
+         // Clear time part for accurate date comparison
+        if (vacationStartDate) vacationStartDate.setHours(0,0,0,0);
+        if (vacationEndDate) vacationEndDate.setHours(0,0,0,0);
+
+        // Validate if the vacation period is relevant for the current schedule generation month
+        const firstDayOfCurrentMonth = new Date(year, month - 1, 1);
+        const lastDayOfCurrentMonth = new Date(year, month, 0);
+        if (vacationEndDate < firstDayOfCurrentMonth || vacationStartDate > lastDayOfCurrentMonth) {
+            vacationStartDate = null; // Vacation period is not in this month
+            vacationEndDate = null;
+            console.log("Vacation period is outside the current month.");
+        } else {
+            console.log(`Vacation period found: ${vacationStartDateStr} to ${vacationEndDateStr}`);
+        }
+    }
+
     const participants = await db.getAllParticipants();
     if (!participants || participants.length === 0) throw new Error("기준정보에 등록된 인원이 없습니다.");
     for (const p of participants) {
@@ -141,6 +176,7 @@ export async function generateSchedule(year, month) {
     const uniqueCategoryKeys = new Set();
     Object.values(TIME_SLOT_CONFIG).flat().forEach(slot => { if (slot.categoryKey) uniqueCategoryKeys.add(slot.categoryKey); });
     uniqueCategoryKeys.add('elementary_random_fallback'); uniqueCategoryKeys.add('middle_random_fallback');
+    uniqueCategoryKeys.add('elementary_vacation_10am'); // Add new vacation category key
     participants.forEach(p => {
         const categoryMap = new Map(); uniqueCategoryKeys.forEach(key => categoryMap.set(key, 0));
         categoryMap.set('total', 0); assignmentCounts.set(p.id, categoryMap);
@@ -153,9 +189,23 @@ export async function generateSchedule(year, month) {
     for (let day = 1; day <= daysInMonth; day++) {
         const currentDate = new Date(year, month - 1, day);
         const dayOfWeekShort = DAYS_OF_WEEK[currentDate.getDay()];
+        const dayOfWeekNumeric = currentDate.getDay(); // 0 for Sun, 1 for Mon, ..., 6 for Sat
         const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
         let dailyAssignments = new Set(); let daySchedule = { date: dateStr, dayOfWeek: dayOfWeekShort, timeSlots: [] };
-        const slotsForDay = TIME_SLOT_CONFIG[dayOfWeekShort] || [];
+        const slotsForDay = [...(TIME_SLOT_CONFIG[dayOfWeekShort] || [])]; // Make a copy
+
+        if (vacationStartDate && vacationEndDate &&
+            currentDate >= vacationStartDate && currentDate <= vacationEndDate &&
+            dayOfWeekNumeric >= 1 && dayOfWeekNumeric <= 5) { // Monday to Friday
+
+            slotsForDay.push({
+                time: '10:00',
+                type: 'elementary', // For elementary students
+                random: true, // Treat as random for assignment logic simplicity
+                categoryKey: 'elementary_vacation_10am', // New unique category key
+                isVacationSlot: true // Custom flag
+            });
+        }
 
         for (const slotInfo of slotsForDay) {
             let assignedPair = []; let fixedAssigneeId = null;
@@ -181,8 +231,14 @@ export async function generateSchedule(year, month) {
                             const absenteeToAssign = absenteeData.obj;
                             const eligiblePartnersPool = originalTargetPool.filter(p => p.id !== absenteeToAssign.id && !dailyAssignments.has(p.id) && p.gender === absenteeToAssign.gender && !((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeekForSlot)) && ((assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS));
                             const enhancedEligiblePartners = eligiblePartnersPool.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts, false));
-                            let partnerToAssign = null; let preferredPartnerData = enhancedEligiblePartners.find(pd => !prevMonthAbsentees.has(pd.obj.id) || (fixedAbsenteeAssignments.get(pd.obj.id) || 0) >= (pd.obj.type === '초등' ? elementaryTargetCoreAssignments : middleTargetCoreAssignments));
-                            if (preferredPartnerData) partnerToAssign = preferredPartnerData.obj; else if (enhancedEligiblePartners.length > 0) partnerToAssign = enhancedEligiblePartners[0].obj;
+                            let partnerToAssign = null;
+                            for (const partnerData of enhancedEligiblePartners) {
+                                const potentialPartner = partnerData.obj;
+                                if (isPairingAllowed(absenteeToAssign.id, potentialPartner.id, participantsMap)) {
+                                    partnerToAssign = potentialPartner;
+                                    break;
+                                }
+                            }
                             if (partnerToAssign) { assignedPair = [absenteeToAssign.id, partnerToAssign.id]; fixedAssigneeId = absenteeToAssign.id; fixedAbsenteeAssignments.set(absenteeToAssign.id, (fixedAbsenteeAssignments.get(absenteeToAssign.id) || 0) + 1); absenteeFixedWeeklyAssignments.get(absenteeToAssign.id).add(currentWeekForSlot); if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++; else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++; attemptA1Successful = true; absenteesAssignedInMainLoop.add(absenteeToAssign.id); if (partnerToAssign && prevMonthAbsentees.has(partnerToAssign.id)) absenteesAssignedInMainLoop.add(partnerToAssign.id); break; }
                         }
                     }
@@ -195,8 +251,14 @@ export async function generateSchedule(year, month) {
                             const absenteeToAssign = absenteeData.obj;
                             const eligiblePartnersPool = originalTargetPool.filter(p => p.id !== absenteeToAssign.id && !dailyAssignments.has(p.id) && p.gender === absenteeToAssign.gender && !((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeekForSlot)) && ((assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS));
                             const enhancedEligiblePartners = eligiblePartnersPool.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts, false));
-                            let partnerToAssign = null; let preferredPartnerData = enhancedEligiblePartners.find(pd => !prevMonthAbsentees.has(pd.obj.id) || (fixedAbsenteeAssignments.get(pd.obj.id) || 0) >= (pd.obj.type === '초등' ? elementaryTargetCoreAssignments : middleTargetCoreAssignments));
-                            if (preferredPartnerData) partnerToAssign = preferredPartnerData.obj; else if (enhancedEligiblePartners.length > 0) partnerToAssign = enhancedEligiblePartners[0].obj;
+                            let partnerToAssign = null;
+                            for (const partnerData of enhancedEligiblePartners) {
+                                const potentialPartner = partnerData.obj;
+                                if (isPairingAllowed(absenteeToAssign.id, potentialPartner.id, participantsMap)) {
+                                    partnerToAssign = potentialPartner;
+                                    break;
+                                }
+                            }
                             if (partnerToAssign) { assignedPair = [absenteeToAssign.id, partnerToAssign.id]; fixedAssigneeId = absenteeToAssign.id; fixedAbsenteeAssignments.set(absenteeToAssign.id, (fixedAbsenteeAssignments.get(absenteeToAssign.id) || 0) + 1); absenteeFixedWeeklyAssignments.get(absenteeToAssign.id).add(currentWeekForSlot); if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++; else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++; absenteesAssignedInMainLoop.add(absenteeToAssign.id); if (partnerToAssign && prevMonthAbsentees.has(partnerToAssign.id)) absenteesAssignedInMainLoop.add(partnerToAssign.id); break; }
                         }
                     }
@@ -214,7 +276,7 @@ export async function generateSchedule(year, month) {
                         });
                     if (b1CandidatePoolForSlot.length >= 2) {
                         b1CandidatePoolForSlot.sort(() => Math.random() - 0.5); let p1_B1 = null, p2_B1 = null;
-                        for (let i = 0; i < b1CandidatePoolForSlot.length; i++) { const cand1 = b1CandidatePoolForSlot[i]; if (dailyAssignments.has(cand1.id) || participantWeeklyAssignments.get(cand1.id)?.has(currentWeekForSlot) || (assignmentCounts.get(cand1.id)?.get(coreCategoryKeyForB1) || 0) !== 0 ) continue; for (let j = i + 1; j < b1CandidatePoolForSlot.length; j++) { const cand2 = b1CandidatePoolForSlot[j]; if (dailyAssignments.has(cand2.id) || participantWeeklyAssignments.get(cand2.id)?.has(currentWeekForSlot) || (assignmentCounts.get(cand2.id)?.get(coreCategoryKeyForB1) || 0) !== 0 ) continue; if (cand1.gender === cand2.gender) { p1_B1 = cand1; p2_B1 = cand2; break; } } if (p1_B1 && p2_B1) break; }
+                        for (let i = 0; i < b1CandidatePoolForSlot.length; i++) { const cand1 = b1CandidatePoolForSlot[i]; if (dailyAssignments.has(cand1.id) || participantWeeklyAssignments.get(cand1.id)?.has(currentWeekForSlot) || (assignmentCounts.get(cand1.id)?.get(coreCategoryKeyForB1) || 0) !== 0 ) continue; for (let j = i + 1; j < b1CandidatePoolForSlot.length; j++) { const cand2 = b1CandidatePoolForSlot[j]; if (dailyAssignments.has(cand2.id) || participantWeeklyAssignments.get(cand2.id)?.has(currentWeekForSlot) || (assignmentCounts.get(cand2.id)?.get(coreCategoryKeyForB1) || 0) !== 0 ) continue; if (cand1.gender === cand2.gender) { if (isPairingAllowed(cand1.id, cand2.id, participantsMap)) { p1_B1 = cand1; p2_B1 = cand2; break; } } } if (p1_B1 && p2_B1) break; }
                         if (p1_B1 && p2_B1) { assignedPair = [p1_B1.id, p2_B1.id]; fixedAssigneeId = null; if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++; else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++; }
                     }
                 }
@@ -236,7 +298,7 @@ export async function generateSchedule(year, month) {
                                 if (potentialRegularsForSecondCore.length >= 2) {
                                     const sortedRegularsForSecondCore = potentialRegularsForSecondCore.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts, false)).map(data => data.obj);
                                     let p1Obj_B2 = null, p2Obj_B2 = null;
-                                    for (let i = 0; i < sortedRegularsForSecondCore.length; i++) { const candidate1_B2 = sortedRegularsForSecondCore[i]; if (dailyAssignments.has(candidate1_B2.id) || (assignmentCounts.get(candidate1_B2.id)?.get(coreCategoryKeyForSlot) || 0) !== 1) continue; p1Obj_B2 = candidate1_B2; for (let p2LoopIdx = i + 1; p2LoopIdx < sortedRegularsForSecondCore.length; p2LoopIdx++) { const candidate2_B2 = sortedRegularsForSecondCore[p2LoopIdx]; if (dailyAssignments.has(candidate2_B2.id) || candidate2_B2.id === p1Obj_B2.id || (assignmentCounts.get(candidate2_B2.id)?.get(coreCategoryKeyForSlot) || 0) !== 1) continue; if (candidate2_B2.gender === p1Obj_B2.gender) { p2Obj_B2 = candidate2_B2; break; } } if (p1Obj_B2 && p2Obj_B2) { assignedPair = [p1Obj_B2.id, p2Obj_B2.id]; fixedAssigneeId = null; if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++; else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++; break; } if(p1Obj_B2 && !p2Obj_B2) p1Obj_B2 = null; }
+                                    for (let i = 0; i < sortedRegularsForSecondCore.length; i++) { const candidate1_B2 = sortedRegularsForSecondCore[i]; if (dailyAssignments.has(candidate1_B2.id) || (assignmentCounts.get(candidate1_B2.id)?.get(coreCategoryKeyForSlot) || 0) !== 1) continue; p1Obj_B2 = candidate1_B2; for (let p2LoopIdx = i + 1; p2LoopIdx < sortedRegularsForSecondCore.length; p2LoopIdx++) { const candidate2_B2 = sortedRegularsForSecondCore[p2LoopIdx]; if (dailyAssignments.has(candidate2_B2.id) || candidate2_B2.id === p1Obj_B2.id || (assignmentCounts.get(candidate2_B2.id)?.get(coreCategoryKeyForSlot) || 0) !== 1) continue; if (candidate2_B2.gender === p1Obj_B2.gender) { if (isPairingAllowed(p1Obj_B2.id, candidate2_B2.id, participantsMap)) { p2Obj_B2 = candidate2_B2; break; } } } if (p1Obj_B2 && p2Obj_B2) { assignedPair = [p1Obj_B2.id, p2Obj_B2.id]; fixedAssigneeId = null; if (isElementaryCoreSlot) assignedCoreSlotsCount.elementary_6am++; else if (isMiddleCoreSlot) assignedCoreSlotsCount.middle_7am++; break; } if(p1Obj_B2 && !p2Obj_B2) p1Obj_B2 = null; }
                                 }
                             }
                         } else {
@@ -253,7 +315,7 @@ export async function generateSchedule(year, month) {
                         });
                         const enhancedTargetPool = filteredTargetPool.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => compareEnhancedParticipants(a,b,false,assignmentCounts, false));
                         const sortedTargetPool = enhancedTargetPool.map(data => data.obj); let p1Obj = null, p2Obj = null;
-                        if (sortedTargetPool.length >= 2) { for (let i = 0; i < sortedTargetPool.length; i++) { const cand1 = sortedTargetPool[i]; if(dailyAssignments.has(cand1.id)) continue; for (let j = i + 1; j < sortedTargetPool.length; j++) { const cand2 = sortedTargetPool[j]; if(dailyAssignments.has(cand2.id) || cand1.id === cand2.id) continue; if (cand1.gender === cand2.gender) { p1Obj = cand1; p2Obj = cand2; break; } } if (p1Obj && p2Obj) break; } }
+                        if (sortedTargetPool.length >= 2) { for (let i = 0; i < sortedTargetPool.length; i++) { const cand1 = sortedTargetPool[i]; if(dailyAssignments.has(cand1.id)) continue; for (let j = i + 1; j < sortedTargetPool.length; j++) { const cand2 = sortedTargetPool[j]; if(dailyAssignments.has(cand2.id) || cand1.id === cand2.id) continue; if (cand1.gender === cand2.gender) { if (isPairingAllowed(cand1.id, cand2.id, participantsMap)) { p1Obj = cand1; p2Obj = cand2; break; } } } if (p1Obj && p2Obj) break; } }
                         if (p1Obj && p2Obj) {
                             assignedPair = [p1Obj.id, p2Obj.id]; fixedAssigneeId = null;
                             [p1Obj, p2Obj].forEach(person => { if (prevMonthAbsentees.has(person.id) && (isElementaryCoreSlot || isMiddleCoreSlot)) { const targetCount = (person.type === '초등') ? elementaryTargetCoreAssignments : middleTargetCoreAssignments; if ((fixedAbsenteeAssignments.get(person.id) || 0) < targetCount && !absenteeFixedWeeklyAssignments.get(person.id)?.has(currentWeekForSlot) ) { fixedAbsenteeAssignments.set(person.id, (fixedAbsenteeAssignments.get(person.id) || 0) + 1); absenteeFixedWeeklyAssignments.get(person.id).add(currentWeekForSlot); if (!fixedAssigneeId) fixedAssigneeId = person.id; } } });
@@ -263,20 +325,35 @@ export async function generateSchedule(year, month) {
                 }
             } else if (slotInfo.random) {
                 let eligibleForRandomRaw = originalTargetPool.filter(p => {
-                    if (dailyAssignments.has(p.id)) return false; const pCountsMap = assignmentCounts.get(p.id); const pWeeklyAssignments = participantWeeklyAssignments.get(p.id);
-                    if ((pCountsMap.get('total') || 0) >= 2 && pWeeklyAssignments.has(currentWeekForSlot)) return false;
+                    if (dailyAssignments.has(p.id)) return false;
+
+                    const pCountsMap = assignmentCounts.get(p.id);
+                    if (!pCountsMap) return false; // Should not happen if maps are initialized correctly
                     if ((pCountsMap.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) return false;
+
+                    const pWeeklyAssignments = participantWeeklyAssignments.get(p.id);
+                    if (!pWeeklyAssignments) return false; // Should not happen
+                    // Weekly cap: if 2 or more total assignments, cannot be assigned again in the same week.
+                    if ((pCountsMap.get('total') || 0) >= 2 && pWeeklyAssignments.has(currentWeekForSlot)) return false;
+
+                    if (prevMonthAbsentees.has(p.id)) {
+                        const targetFixedCount = p.type === '초등' ? elementaryTargetCoreAssignments : middleTargetCoreAssignments;
+                        // Absentee is eligible for random only if their "forced" assignments are done.
+                        if ((fixedAbsenteeAssignments.get(p.id) || 0) < targetFixedCount) {
+                            return false;
+                        }
+                    }
                     return true;
                 });
-                const nonAbsentees = eligibleForRandomRaw.filter(p => !prevMonthAbsentees.has(p.id)); if (nonAbsentees.length >= 2) eligibleForRandomRaw = nonAbsentees;
+                // const nonAbsentees = eligibleForRandomRaw.filter(p => !prevMonthAbsentees.has(p.id)); if (nonAbsentees.length >= 2) eligibleForRandomRaw = nonAbsentees; // This line is removed as per requirement
                 const enhancedEligibleForRandom = eligibleForRandomRaw.map(p => getEnhancedParticipantData(p, slotInfo, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts));
                 enhancedEligibleForRandom.sort((a,b) => compareEnhancedParticipants(a,b,true,assignmentCounts, true));
                 let p1Data = null, p2Data = null;
-                for (let i = 0; i < enhancedEligibleForRandom.length; i++) { p1Data = enhancedEligibleForRandom[i]; for (let j = i + 1; j < enhancedEligibleForRandom.length; j++) { p2Data = enhancedEligibleForRandom[j]; if (p1Data.gender === p2Data.gender) { assignedPair = [p1Data.id, p2Data.id]; break; } } if (assignedPair.length === 2) break; p2Data = null; }
-                if (!p1Data || !p2Data || assignedPair.length < 2) assignedPair = [];
-                if (assignedPair.length < 2 && eligibleForRandomRaw.length >=2) {
+                for (let i = 0; i < enhancedEligibleForRandom.length; i++) { p1Data = enhancedEligibleForRandom[i]; for (let j = i + 1; j < enhancedEligibleForRandom.length; j++) { p2Data = enhancedEligibleForRandom[j]; if (p1Data.gender === p2Data.gender) { if (isPairingAllowed(p1Data.id, p2Data.id, participantsMap)) { assignedPair = [p1Data.id, p2Data.id]; break; } } } if (assignedPair.length === 2) break; p2Data = null; }
+                if (!p1Data || !p2Data || assignedPair.length < 2) assignedPair = []; // Ensure assignedPair is reset if no valid pair found
+                if (assignedPair.length < 2 && eligibleForRandomRaw.length >=2) { // Fallback if primary sort didn't yield a pair
                     const poolForFallback = enhancedEligibleForRandom.map(data => data.obj); let p1Obj = null, p2Obj = null;
-                    for (let i = 0; i < poolForFallback.length; i++) { const candidate1 = poolForFallback[i]; if (dailyAssignments.has(candidate1.id)) continue; p1Obj = candidate1; for (let j = i + 1; j < poolForFallback.length; j++) { const candidate2 = poolForFallback[j]; if (dailyAssignments.has(candidate2.id) || candidate2.id === p1Obj.id) continue; if (candidate2.gender === p1Obj.gender) { p2Obj = candidate2; break; } } if (p1Obj && p2Obj) { assignedPair = [p1Obj.id, p2Obj.id]; break; } if(p1Obj && !p2Obj) p1Obj = null; }
+                    for (let i = 0; i < poolForFallback.length; i++) { const candidate1 = poolForFallback[i]; if (dailyAssignments.has(candidate1.id)) continue; p1Obj = candidate1; for (let j = i + 1; j < poolForFallback.length; j++) { const candidate2 = poolForFallback[j]; if (dailyAssignments.has(candidate2.id) || candidate2.id === p1Obj.id) continue; if (candidate2.gender === p1Obj.gender) { if (isPairingAllowed(p1Obj.id, candidate2.id, participantsMap)) { p2Obj = candidate2; break; } } } if (p1Obj && p2Obj) { assignedPair = [p1Obj.id, p2Obj.id]; break; } if(p1Obj && !p2Obj) p1Obj = null; }
                 }
             }
 
@@ -312,9 +389,16 @@ export async function generateSchedule(year, month) {
                     if (!targetSlot || targetSlot.assigned.length > 0) continue;
                     if (((assignmentCounts.get(absentee.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(absentee.id)?.has(currentWeek))) continue;
                     const partnerPool = (absentee.type === '초등' ? elementaryParticipants : middleParticipants).filter(p => p.id !== absentee.id && !dailyAssignedForThisDay.has(p.id) && p.gender === absentee.gender && !(((assignmentCounts.get(p.id)?.get('total') || 0) >= 2 && participantWeeklyAssignments.get(p.id)?.has(currentWeek))) && ((assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS) );
-                    if (partnerPool.length > 0) {
-                        const partner = partnerPool[0]; targetSlot.assigned = [absentee.id, partner.id]; targetSlot.assignedNames = [participantsMap.get(absentee.id)?.name, participantsMap.get(partner.id)?.name]; targetSlot.isFixedStatus = [false, false]; dailyAssignedForThisDay.add(absentee.id); dailyAssignedForThisDay.add(partner.id); fixedAbsenteeAssignments.set(absentee.id, (fixedAbsenteeAssignments.get(absentee.id) || 0) + 1);
-                        [absentee.id, partner.id].forEach(pid => { const counts = assignmentCounts.get(pid); counts.set('total', (counts.get('total') || 0) + 1); if (slotInfo_A2_NonCore.categoryKey) counts.set(slotInfo_A2_NonCore.categoryKey, (counts.get(slotInfo_A2_NonCore.categoryKey) || 0) + 1); participantWeeklyAssignments.get(pid).add(currentWeek); });
+                    let partnerToAssign = null;
+                    for (const potentialPartner of partnerPool) {
+                        if (isPairingAllowed(absentee.id, potentialPartner.id, participantsMap)) {
+                            partnerToAssign = potentialPartner;
+                            break;
+                        }
+                    }
+                    if (partnerToAssign) {
+                        targetSlot.assigned = [absentee.id, partnerToAssign.id]; targetSlot.assignedNames = [participantsMap.get(absentee.id)?.name, participantsMap.get(partnerToAssign.id)?.name]; targetSlot.isFixedStatus = [false, false]; dailyAssignedForThisDay.add(absentee.id); dailyAssignedForThisDay.add(partnerToAssign.id); fixedAbsenteeAssignments.set(absentee.id, (fixedAbsenteeAssignments.get(absentee.id) || 0) + 1);
+                        [absentee.id, partnerToAssign.id].forEach(pid => { const counts = assignmentCounts.get(pid); counts.set('total', (counts.get('total') || 0) + 1); if (slotInfo_A2_NonCore.categoryKey) counts.set(slotInfo_A2_NonCore.categoryKey, (counts.get(slotInfo_A2_NonCore.categoryKey) || 0) + 1); participantWeeklyAssignments.get(pid).add(currentWeek); });
                         break;
                     }
                 }
@@ -331,13 +415,14 @@ export async function generateSchedule(year, month) {
             console.log(`C-Step: Found ${participantsForCStep.length} participants with < 2 assignments.`);
             let sortedParticipantsForCStep = [...participantsForCStep].sort((pA, pB) => { const prevTotalA = calculatedPrevTotalCounts.get(pA.id) || 0; const prevTotalB = calculatedPrevTotalCounts.get(pB.id) || 0; if (prevTotalA !== prevTotalB) return prevTotalA - prevTotalB; return pA.id - pB.id; });
             const candidatePairsForC = []; const pairedIdsInCStepPass = new Set();
-            for (let i = 0; i < sortedParticipantsForCStep.length; i++) { const p1 = sortedParticipantsForCStep[i]; if (pairedIdsInCStepPass.has(p1.id) || (assignmentCounts.get(p1.id)?.get('total') || 0) >= 2 || (assignmentCounts.get(p1.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) continue; for (let j = i + 1; j < sortedParticipantsForCStep.length; j++) { const p2 = sortedParticipantsForCStep[j]; if (pairedIdsInCStepPass.has(p2.id) || (assignmentCounts.get(p2.id)?.get('total') || 0) >= 2 || (assignmentCounts.get(p2.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) continue; if (p1.gender === p2.gender) { candidatePairsForC.push({ p1: p1, p2: p2 }); pairedIdsInCStepPass.add(p1.id); pairedIdsInCStepPass.add(p2.id); break; } } }
-            console.log(`C-Step: Generated ${candidatePairsForC.length} candidate pairs.`);
+            for (let i = 0; i < sortedParticipantsForCStep.length; i++) { const p1 = sortedParticipantsForCStep[i]; if (pairedIdsInCStepPass.has(p1.id) || (assignmentCounts.get(p1.id)?.get('total') || 0) >= 2 || (assignmentCounts.get(p1.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) continue; for (let j = i + 1; j < sortedParticipantsForCStep.length; j++) { const p2 = sortedParticipantsForCStep[j]; if (pairedIdsInCStepPass.has(p2.id) || (assignmentCounts.get(p2.id)?.get('total') || 0) >= 2 || (assignmentCounts.get(p2.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) continue; if (p1.gender === p2.gender) { if (isPairingAllowed(p1.id, p2.id, participantsMap)) { candidatePairsForC.push({ p1: p1, p2: p2 }); pairedIdsInCStepPass.add(p1.id); pairedIdsInCStepPass.add(p2.id); break; } } } }
+            console.log(`C-Step: Generated ${candidatePairsForC.length} valid candidate pairs.`);
             const remainingEmptySlots_C = []; scheduleData.forEach(daySch => daySch.timeSlots.forEach(slot => { if (slot.assigned.length === 0) remainingEmptySlots_C.push({ date: daySch.date, ...slot }); }));
             console.log(`C-Step: Found ${remainingEmptySlots_C.length} empty slots.`);
             let assignedInCStepCount = 0; remainingEmptySlots_C.sort(() => Math.random() - 0.5);
-            for (const pairToAssign of candidatePairsForC) {
+            for (const pairToAssign of candidatePairsForC) { // candidatePairsForC now only contains valid pairs
                 const p1 = pairToAssign.p1; const p2 = pairToAssign.p2;
+                // This check might be redundant if candidatePairsForC is already filtered, but kept for safety for now.
                 if (((assignmentCounts.get(p1.id)?.get('total') || 0) >= 2 || (assignmentCounts.get(p1.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS) && ((assignmentCounts.get(p2.id)?.get('total') || 0) >= 2 || (assignmentCounts.get(p2.id)?.get('total') || 0) >= MAX_ALLOWED_ASSIGNMENTS)) continue;
                 let cStepAssignedThisPair = false;
                 for (const emptySlot of remainingEmptySlots_C) {
@@ -345,6 +430,7 @@ export async function generateSchedule(year, month) {
                     const p1CanBeAssigned = !dailyAssignedForThisDay_C.has(p1.id) && !participantWeeklyAssignments.get(p1.id)?.has(currentWeek_C) && (assignmentCounts.get(p1.id)?.get('total') || 0) < 2 && (assignmentCounts.get(p1.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS;
                     const p2CanBeAssigned = !dailyAssignedForThisDay_C.has(p2.id) && !participantWeeklyAssignments.get(p2.id)?.has(currentWeek_C) && (assignmentCounts.get(p2.id)?.get('total') || 0) < 2 && (assignmentCounts.get(p2.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS;
                     if (p1CanBeAssigned && p2CanBeAssigned) {
+                        // isPairingAllowed check is now done when creating candidatePairsForC
                         const daySchToUpdate = scheduleData.find(ds => ds.date === emptySlot.date); const slotToUpdate = daySchToUpdate.timeSlots.find(s => s.time === emptySlot.time && s.type === emptySlot.type && s.categoryKey === emptySlot.categoryKey);
                         slotToUpdate.assigned = [p1.id, p2.id]; slotToUpdate.assignedNames = [participantsMap.get(p1.id)?.name, participantsMap.get(p2.id)?.name]; slotToUpdate.isFixedStatus = [false, false]; dailyAssignedForThisDay_C.add(p1.id); dailyAssignedForThisDay_C.add(p2.id);
                         [p1.id, p2.id].forEach(pid => { const counts = assignmentCounts.get(pid); counts.set('total', (counts.get('total') || 0) + 1); if (slotToUpdate.categoryKey) counts.set(slotToUpdate.categoryKey, (counts.get(slotToUpdate.categoryKey) || 0) + 1); participantWeeklyAssignments.get(pid).add(currentWeek_C); });
@@ -379,7 +465,13 @@ export async function generateSchedule(year, month) {
                 let potentialPartners_D = activeParticipants.filter(p => p.id !== candidateP1.id && !dailyAssignedForThisDay_D.has(p.id) && p.gender === candidateP1.gender && !participantWeeklyAssignments.get(p.id)?.has(currentWeekD) && (assignmentCounts.get(p.id)?.get('total') || 0) < MAX_ALLOWED_ASSIGNMENTS);
                 if (potentialPartners_D.length > 0) {
                     const sortedPotentialPartners_D = potentialPartners_D.map(p => getEnhancedParticipantData(p, tempSlotInfoForDSort, prevMonthAssignmentCounts, assignmentCounts, CORE_CATEGORIES, calculatedPrevTotalCounts)).sort((a,b) => { const totalA_DP = assignmentCounts.get(a.id)?.get('total') || 0; const totalB_DP = assignmentCounts.get(b.id)?.get('total') || 0; if (totalA_DP !== totalB_DP) return totalA_DP - totalB_DP; return Math.random() - 0.5; });
-                    if (sortedPotentialPartners_D.length > 0) { p1_D = candidateP1; p2_D = sortedPotentialPartners_D[0].obj; break; }
+                    for (const p2Data_D_partner of sortedPotentialPartners_D) {
+                        const candidateP2 = p2Data_D_partner.obj;
+                        if (isPairingAllowed(candidateP1.id, candidateP2.id, participantsMap)) {
+                            p1_D = candidateP1; p2_D = candidateP2; break;
+                        }
+                    }
+                    if (p1_D && p2_D) break; // Found a valid pair for p1_D
                 }
             }
             if (p1_D && p2_D) {
