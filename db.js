@@ -101,6 +101,7 @@ export async function getScheduleConfirmation(year, month) {
     const store = tx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
     const record = await store.get([year, month]);
     await tx.done;
+    console.log(`[db.js] getScheduleConfirmation for ${year}-${month}: Record found:`, JSON.stringify(record), 'Will return:', record ? record.confirmed : false);
     return record ? record.confirmed : false; // Default to false if no record found
 }
 
