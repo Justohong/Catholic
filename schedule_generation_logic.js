@@ -84,12 +84,14 @@ function isPairingAllowed(p1_id, p2_id, participantsMap) {
 export async function generateSchedule(year, month) {
     // Add this block at the beginning
     const scheduleIsConfirmed = await isScheduleConfirmed(year, month);
+    console.log(`[schedule_generation_logic.js] generateSchedule: isScheduleConfirmed returned: ${scheduleIsConfirmed} for ${year}-${month}`);
     if (scheduleIsConfirmed) {
-        console.log(`Schedule generation for ${year}-${month} blocked because it is confirmed.`);
+        console.log(`[schedule_generation_logic.js] Schedule generation for ${year}-${month} BLOCKED because it is confirmed.`);
         // Throw a specific error or return an object that the UI layer can uniquely identify.
         // Using an error with a specific message is common.
         throw new Error(`SCHEDULE_CONFIRMED: ${year}년 ${month}월의 일정은 이미 확정되었습니다. 재생성할 수 없습니다.`);
     }
+    console.log(`[schedule_generation_logic.js] Schedule generation for ${year}-${month} PROCEEDING.`);
 
     const MAX_ALLOWED_ASSIGNMENTS = 3;
 
