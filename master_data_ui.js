@@ -65,24 +65,24 @@ export function renderMasterDataView(containerId, onAdd, onExcelUpload, onDelete
                     <i data-lucide="file-up" class="mr-2 h-5 w-5"></i>엑셀 업로드
                 </button>
                 <button id="downloadExcelTemplateBtn" class="btn btn-secondary w-full sm:w-auto ml-2">
-                    <i data-lucide="file-spreadsheet" class="mr-2 h-5 w-5"></i>엑셀양식 다운로드
+                    <i data-lucide="file-spreadsheet" class="mr-2 h-5 w-5"></i>양식 다운로드
                 </button>
             </div>
         </div>
         
-        <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-medium text-sky-600">등록된 정보 목록</h3>
-            <div class="flex flex-col sm:flex-row gap-2 mb-2 sm:mb-0">
-                <button id="filterSmallCopyBtn" class="btn btn-secondary w-full sm:w-auto">
-                    <i data-lucide="users" class="mr-2 h-5 w-5"></i>소복사 관리
-                </button>
-                <button id="deleteSelectedBtn" class="btn btn-danger w-full sm:w-auto" disabled>
-                    <i data-lucide="trash-2" class="mr-2 h-5 w-5"></i>선택 항목 삭제
-                </button>
-                <button id="deleteAllBtn" class="btn btn-danger w-full sm:w-auto">
-                    <i data-lucide="alert-triangle" class="mr-2 h-5 w-5"></i>전체 삭제
-                </button>
-            </div>
+        <div class="mb-4">
+            <h3 class="text-lg font-medium text-sky-600 mb-3">등록된 정보 목록</h3>
+        </div>
+        <div class="flex flex-col sm:flex-row gap-2 mb-4 w-full">
+            <button id="filterSmallCopyBtn" class="btn btn-secondary w-full sm:w-auto">
+                <i data-lucide="users" class="mr-2 h-5 w-5"></i>소복사 관리
+            </button>
+            <button id="deleteSelectedBtn" class="btn btn-danger w-full sm:w-auto" disabled>
+                <i data-lucide="trash-2" class="mr-2 h-5 w-5"></i>선택 항목 삭제
+            </button>
+            <button id="deleteAllBtn" class="btn btn-danger w-full sm:w-auto">
+                <i data-lucide="alert-triangle" class="mr-2 h-5 w-5"></i>전체 삭제
+            </button>
         </div>
         <div id="masterDataTableContainer" class="overflow-x-auto bg-white rounded-lg shadow">
             <p class="p-4 text-slate-500">데이터를 불러오는 중입니다...</p>
