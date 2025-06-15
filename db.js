@@ -90,9 +90,31 @@ export async function setScheduleConfirmation(year, month, status) {
     const db = await openDB();
     const tx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readwrite');
     const store = tx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
-    await store.put({ year, month, confirmed: status });
+
+    // Explicitly create the object to be stored
+    const recordToStore = {
+        year: year,
+        month: month,
+        confirmed: status
+    };
+
+    console.log(`[db.js] setScheduleConfirmation for ${year}-${month}: Attempting to store record:`, JSON.stringify(recordToStore));
+
+    const request = store.put(recordToStore);
+
+    await new Promise((resolve, reject) => {
+        request.onsuccess = () => {
+            console.log(`[db.js] setScheduleConfirmation for ${year}-${month}: store.put successful.`);
+            resolve();
+        };
+        request.onerror = (event) => {
+            console.error(`[db.js] setScheduleConfirmation for ${year}-${month}: store.put ERROR:`, event.target.error);
+            reject(event.target.error);
+        };
+    });
+
     await tx.done;
-    console.log(`Schedule confirmation status for ${year}-${month} set to ${status}.`);
+    console.log(`[db.js] setScheduleConfirmation for ${year}-${month}: Transaction done. Status set to ${status}.`);
 }
 
 export async function getScheduleConfirmation(year, month) {
