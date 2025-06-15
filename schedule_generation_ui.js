@@ -722,6 +722,20 @@ async function handleGenerateSchedule() {
     const month = parseInt(monthInput.value);
     if (!year || year < 2000 || year > 2100) { displayMessage('유효한 년도를 입력하세요 (2000-2100).', 'error'); return; }
     if (!month || month < 1 || month > 12) { displayMessage('유효한 월을 선택하세요.', 'error'); return; }
+    
+    // 일정 확정 여부 먼저 확인
+    try {
+        const isConfirmed = await shareLogic.isScheduleConfirmed(year, month);
+        if (isConfirmed) {
+            displayMessage(`${year}년 ${month}월 일정은 이미 확정되었습니다. 재생성할 수 없습니다.`, 'error');
+            return;
+        }
+    } catch (error) {
+        console.error("일정 확정 여부 확인 중 오류 발생:", error);
+        displayMessage('일정 확정 여부 확인 중 오류가 발생했습니다.', 'error');
+        return;
+    }
+    
     generateBtn.disabled = true;
     generateBtn.innerHTML = '<i data-lucide="loader-2" class="animate-spin mr-2 h-4 w-4"></i> 생성 중...';
     lucide.createIcons();
