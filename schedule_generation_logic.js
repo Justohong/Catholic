@@ -1,4 +1,5 @@
 import * as db from './db.js';
+import { isScheduleConfirmed } from './share_logic.js';
 
 const TIME_SLOT_CONFIG = {
     'Mon': [{ time: '06:00', type: 'elementary', sequential: true, categoryKey: 'elementary_6am' }],
@@ -81,6 +82,15 @@ function isPairingAllowed(p1_id, p2_id, participantsMap) {
 }
 
 export async function generateSchedule(year, month) {
+    // Add this block at the beginning
+    const scheduleIsConfirmed = await isScheduleConfirmed(year, month);
+    if (scheduleIsConfirmed) {
+        console.log(`Schedule generation for ${year}-${month} blocked because it is confirmed.`);
+        // Throw a specific error or return an object that the UI layer can uniquely identify.
+        // Using an error with a specific message is common.
+        throw new Error(`SCHEDULE_CONFIRMED: ${year}년 ${month}월의 일정은 이미 확정되었습니다. 재생성할 수 없습니다.`);
+    }
+
     const MAX_ALLOWED_ASSIGNMENTS = 3;
 
     const vacationStartDateStr = sessionStorage.getItem('vacationStartDate');

@@ -28,9 +28,10 @@ export function __clearMockData() {
 }
 
 const DB_NAME = 'SchedulePWA_DB';
-const DB_VERSION = 4; // Ensure DB version is 4
+const DB_VERSION = 5; // Incremented DB version
 const PARTICIPANTS_STORE_NAME = 'participants';
 const SCHEDULES_STORE_NAME = 'schedules';
+const SCHEDULE_CONFIRMATIONS_STORE_NAME = 'scheduleConfirmations'; // New store name
 const ATTENDANCE_LOG_STORE_NAME = 'attendanceLog';
 const SCHEDULE_STATE_STORE_NAME = 'scheduleState';
 const MONTHLY_ASSIGNMENT_COUNTS_STORE_NAME = 'monthlyAssignmentCounts';
@@ -77,8 +78,39 @@ export function openDB() {
                 store.createIndex('yearMonthIndex', ['year', 'month'], { unique: false });
                 store.createIndex('participantMonthIndex', ['participantId', 'year', 'month'], { unique: false });
             }
+            // Add scheduleConfirmations store if it doesn't exist
+            if (!tempDb.objectStoreNames.contains(SCHEDULE_CONFIRMATIONS_STORE_NAME)) {
+                tempDb.createObjectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME, { keyPath: ['year', 'month'] });
+            }
         };
     });
+}
+
+export async function setScheduleConfirmation(year, month, status) {
+    const db = await openDB();
+    const tx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
+    await store.put({ year, month, confirmed: status });
+    await tx.done;
+    console.log(`Schedule confirmation status for ${year}-${month} set to ${status}.`);
+}
+
+export async function getScheduleConfirmation(year, month) {
+    const db = await openDB();
+    const tx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readonly');
+    const store = tx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
+    const record = await store.get([year, month]);
+    await tx.done;
+    return record ? record.confirmed : false; // Default to false if no record found
+}
+
+export async function removeScheduleConfirmation(year, month) {
+    const db = await openDB();
+    const tx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readwrite');
+    const store = tx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
+    await store.delete([year, month]);
+    await tx.done;
+    console.log(`Schedule confirmation for ${year}-${month} removed.`);
 }
 
 export async function addParticipant(participant) {

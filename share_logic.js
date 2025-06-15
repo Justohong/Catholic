@@ -1,4 +1,5 @@
 import * as db from './db.js';
+import { setScheduleConfirmation, getScheduleConfirmation, removeScheduleConfirmation } from './db.js';
 
 export async function getScheduleForMonth(year, month) {
     return await db.getSchedule(year, month);
@@ -42,6 +43,54 @@ export async function unassignParticipant(year, month, date, time, participantId
     timeSlot.assigned = timeSlot.assigned.filter(id => id !== participantIdToUnassign);
     
     await db.saveSchedule(year, month, scheduleData);
+}
+
+export async function confirmSchedule(year, month) {
+    if (!year || !month) {
+        console.error("confirmSchedule: Year and month are required.");
+        return { success: false, error: "Year and month are required." };
+    }
+    try {
+        await setScheduleConfirmation(year, month, true);
+        console.log(`Schedule for ${year}-${month} confirmed in share_logic.`);
+        return { success: true };
+    } catch (error) {
+        console.error(`Error confirming schedule for ${year}-${month}:`, error);
+        return { success: false, error: error.message || "Failed to confirm schedule." };
+    }
+}
+
+export async function cancelScheduleConfirmation(year, month) {
+    if (!year || !month) {
+        console.error("cancelScheduleConfirmation: Year and month are required.");
+        return { success: false, error: "Year and month are required." };
+    }
+    try {
+        await removeScheduleConfirmation(year, month);
+        console.log(`Schedule confirmation for ${year}-${month} cancelled in share_logic.`);
+        return { success: true };
+    } catch (error) {
+        console.error(`Error cancelling schedule confirmation for ${year}-${month}:`, error);
+        return { success: false, error: error.message || "Failed to cancel schedule confirmation." };
+    }
+}
+
+export async function isScheduleConfirmed(year, month) {
+    if (!year || !month) {
+        console.error("isScheduleConfirmed: Year and month are required.");
+        // Return true or throw error? Let's return a value indicating uncertainty or error.
+        // For now, let's assume if year/month are invalid, it cannot be confirmed.
+        return false;
+    }
+    try {
+        const confirmed = await getScheduleConfirmation(year, month);
+        return confirmed;
+    } catch (error) {
+        console.error(`Error checking schedule confirmation for ${year}-${month}:`, error);
+        // In case of error, should we assume not confirmed or propagate error?
+        // For safety, let's assume not confirmed if there's an error reading status.
+        return false;
+    }
 }
 
 export async function replaceParticipant(year, month, date, time, participantIdToReplace, newParticipantId) {
