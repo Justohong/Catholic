@@ -103,6 +103,14 @@ export async function setScheduleConfirmation(year, month, status) {
 
     const request = store.put(recordToStore);
 
+    const getRequestAfterPut = store.get([year, month]);
+    getRequestAfterPut.onsuccess = () => {
+        console.log(`[db.js] DEBUG setScheduleConfirmation for ${year}-${month}: Data immediately after store.put (within same tx):`, JSON.stringify(getRequestAfterPut.result));
+    };
+    getRequestAfterPut.onerror = (event) => {
+        console.error(`[db.js] DEBUG setScheduleConfirmation for ${year}-${month}: ERROR reading immediately after store.put:`, event.target.error);
+    };
+
     await new Promise((resolve, reject) => {
         request.onsuccess = () => {
             console.log(`[db.js] setScheduleConfirmation for ${year}-${month}: store.put successful.`);
@@ -116,6 +124,22 @@ export async function setScheduleConfirmation(year, month, status) {
 
     await tx.done;
     console.log(`[db.js] setScheduleConfirmation for ${year}-${month}: Transaction done. Status set to ${status}.`);
+
+    console.log(`[db.js] DEBUG setScheduleConfirmation for ${year}-${month}: Transaction supposedly done. Re-opening to verify data.`);
+    const newTx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readonly');
+    const newStore = newTx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
+    const verifyRequest = newStore.get([year, month]);
+    await new Promise((resolve, reject) => {
+        verifyRequest.onsuccess = () => {
+            console.log(`[db.js] DEBUG setScheduleConfirmation for ${year}-${month}: Data after tx.done (verified in new tx):`, JSON.stringify(verifyRequest.result));
+            resolve();
+        };
+        verifyRequest.onerror = (event) => {
+            console.error(`[db.js] DEBUG setScheduleConfirmation for ${year}-${month}: ERROR verifying data after tx.done:`, event.target.error);
+            reject(event.target.error);
+        };
+    });
+    await newTx.done;
 }
 
 export async function getScheduleConfirmation(year, month) {
