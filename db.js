@@ -101,8 +101,20 @@ export async function getScheduleConfirmation(year, month) {
     const store = tx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
     const record = await store.get([year, month]);
     await tx.done;
-    console.log(`[db.js] getScheduleConfirmation for ${year}-${month}: Record found:`, JSON.stringify(record), 'Will return:', record ? record.confirmed : false);
-    return record ? record.confirmed : false; // Default to false if no record found
+
+    // Previous log to be removed or kept for extended debugging by user if they wish:
+    // console.log(`[db.js] getScheduleConfirmation for ${year}-${month}: Record found:`, JSON.stringify(record), 'Will return:', record ? record.confirmed : false);
+
+    // New robust check and logging:
+    console.log(`[db.js] getScheduleConfirmation DEBUG for ${year}-${month}. Raw record from DB:`, JSON.stringify(record));
+
+    if (record && typeof record.confirmed === 'boolean') {
+        console.log(`[db.js] getScheduleConfirmation for ${year}-${month}: Valid record found. Returning 'confirmed' property: ${record.confirmed}`);
+        return record.confirmed;
+    } else {
+        console.log(`[db.js] getScheduleConfirmation for ${year}-${month}: Record not found, or 'confirmed' property is missing or not a boolean. Defaulting to false. Raw record was: ${JSON.stringify(record)}`);
+        return false; // Default to false if record is not as expected
+    }
 }
 
 export async function removeScheduleConfirmation(year, month) {
