@@ -216,53 +216,24 @@ export function initScheduleGenerationView(viewElementId) {
     lucide.createIcons();
 }
 
-function formatDateInputString(inputStr) {
-    if (!inputStr) return null; // Return null for empty/null input
-    const trimmedInput = inputStr.replace(/\s+/g, ''); // Remove all spaces
-
-    // Check if already in YYYY-MM-DD format
-    const ymdRegex = /^\d{4}-\d{2}-(\d{2})$/;
-    if (ymdRegex.test(trimmedInput)) {
-        return trimmedInput;
-    }
-
-    // Check if in YYYYMMDD format (8 digits)
-    const eightDigitRegex = /^(\d{4})(\d{2})(\d{2})$/;
-    const match = trimmedInput.match(eightDigitRegex);
-    if (match) {
-        const year = parseInt(match[1]);
-        const month = parseInt(match[2]);
-        const day = parseInt(match[3]);
-
-        // Basic validation for month and day ranges
-        if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-            // More detailed validation (like days in month) will be caught by `new Date()` later
-            return `${match[1]}-${match[2]}-${match[3]}`;
-        } else {
-            return trimmedInput; // Invalid YYYYMMDD (e.g. 20231301), return original to fail regex
-        }
-    }
-    return trimmedInput; // Return original if no rules match
-}
 
 async function handleSetVacationPeriod() {
-    const startDateInput = prompt("방학 시작일을 입력하세요 (YYYY-MM-DD 또는 YYYYMMDD 형식):");
-    if (startDateInput === null) return; // User cancelled prompt
+    const startDateStr = prompt("방학 시작일을 입력하세요 (YYYY-MM-DD):");
+    if (!startDateStr) return; // User cancelled
 
-    const endDateInput = prompt("방학 종료일을 입력하세요 (YYYY-MM-DD 또는 YYYYMMDD 형식):");
-    if (endDateInput === null) return; // User cancelled prompt
+    const endDateStr = prompt("방학 종료일을 입력하세요 (YYYY-MM-DD):");
+    if (!endDateStr) return; // User cancelled
 
-    let processedStartDateStr = formatDateInputString(startDateInput);
-    let processedEndDateStr = formatDateInputString(endDateInput);
-
+    // Basic validation
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!processedStartDateStr || !processedEndDateStr || !dateRegex.test(processedStartDateStr) || !dateRegex.test(processedEndDateStr)) {
-        alert("날짜 형식이 올바르지 않습니다. YYYY-MM-DD 또는 YYYYMMDD 형식으로 입력해주세요.\n예: 2025-08-01 또는 20250801");
+    if (!dateRegex.test(startDateStr) || !dateRegex.test(endDateStr)) {
+        alert("날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요.");
         return;
     }
 
-    const startDate = new Date(processedStartDateStr);
-    const endDate = new Date(processedEndDateStr);
+    const startDate = new Date(startDateStr);
+    const endDate = new Date(endDateStr);
+
 
     // Check if dates are valid after parsing
     if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
@@ -275,9 +246,11 @@ async function handleSetVacationPeriod() {
         return;
     }
 
-    sessionStorage.setItem('vacationStartDate', processedStartDateStr);
-    sessionStorage.setItem('vacationEndDate', processedEndDateStr);
-    alert(`방학 기간이 ${processedStartDateStr}부터 ${processedEndDateStr}까지로 설정되었습니다. 다음 일정 생성 시 적용됩니다.`);
+
+    sessionStorage.setItem('vacationStartDate', startDateStr);
+    sessionStorage.setItem('vacationEndDate', endDateStr);
+    alert(`방학 기간이 ${startDateStr}부터 ${endDateStr}까지로 설정되었습니다. 다음 일정 생성 시 적용됩니다.`);
+
 }
 
 async function loadScheduleDataForInputs() {
