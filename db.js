@@ -28,7 +28,7 @@ export function __clearMockData() {
 }
 
 const DB_NAME = 'SchedulePWA_DB';
-const DB_VERSION = 5; // Incremented DB version
+const DB_VERSION = 6; // Incremented DB version
 const PARTICIPANTS_STORE_NAME = 'participants';
 const SCHEDULES_STORE_NAME = 'schedules';
 const SCHEDULE_CONFIRMATIONS_STORE_NAME = 'scheduleConfirmations'; // New store name
@@ -79,9 +79,10 @@ export function openDB() {
                 store.createIndex('participantMonthIndex', ['participantId', 'year', 'month'], { unique: false });
             }
             // Add scheduleConfirmations store if it doesn't exist
-            if (!tempDb.objectStoreNames.contains(SCHEDULE_CONFIRMATIONS_STORE_NAME)) {
-                tempDb.createObjectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME, { keyPath: ['year', 'month'] });
+            if (tempDb.objectStoreNames.contains(SCHEDULE_CONFIRMATIONS_STORE_NAME)) {
+                tempDb.deleteObjectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
             }
+            tempDb.createObjectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME, { keyPath: ['year', 'month'] });
         };
     });
 }
