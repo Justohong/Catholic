@@ -319,19 +319,52 @@ export async function generateSchedule(year, month) {
             const pBEnglishType = getEnglishParticipantType(pB.type);
             const coreCategoryKeyA = pAEnglishType === 'elementary' ? CORE_CATEGORIES_MAP.elementary : CORE_CATEGORIES_MAP.middle;
             const coreCategoryKeyB = pBEnglishType === 'elementary' ? CORE_CATEGORIES_MAP.elementary : CORE_CATEGORIES_MAP.middle;
+            
+            // 이전 월 새벽 배정 횟수 비교
             const prevCoreCountA = prevMonthAssignmentCounts.get(pA.id)?.get(coreCategoryKeyA) || 0;
             const prevCoreCountB = prevMonthAssignmentCounts.get(pB.id)?.get(coreCategoryKeyB) || 0;
-            if (prevCoreCountA !== prevCoreCountB) return prevCoreCountA - prevCoreCountB;
+            
+            // 현재 월 새벽 배정 횟수도 고려 (현재 월에 이미 배정된 경우 우선순위 낮춤)
+            const currentCoreCountA = assignmentCounts.get(pA.id)?.get(coreCategoryKeyA) || 0;
+            const currentCoreCountB = assignmentCounts.get(pB.id)?.get(coreCategoryKeyB) || 0;
+            
+            // 현재 월 배정과 이전 월 배정을 모두 고려한 총 점수 계산
+            const totalScoreA = prevCoreCountA + (currentCoreCountA * 2); // 현재 월 배정은 가중치 2배
+            const totalScoreB = prevCoreCountB + (currentCoreCountB * 2);
+            
+            // 총 점수가 다르면 점수가 낮은 사람 우선 (배정이 적은 사람)
+            if (totalScoreA !== totalScoreB) return totalScoreA - totalScoreB;
+            
+            // 점수가 같으면 이전 월 전체 배정 횟수로 비교
             const prevTotalCountA = calculatedPrevTotalCounts.get(pA.id) || 0;
             const prevTotalCountB = calculatedPrevTotalCounts.get(pB.id) || 0;
             if (prevTotalCountA !== prevTotalCountB) return prevTotalCountA - prevTotalCountB;
+            
+            // 모두 같으면 랜덤 정렬
             return Math.random() - 0.5;
         });
         const numSlotsToFill = remainingUnfilledCoreSlots.length;
         let estimatedParticipantsNeeded = numSlotsToFill * 2;
-        estimatedParticipantsNeeded = Math.min(estimatedParticipantsNeeded + 10, sortedRegularsForCore.length);
+        
+        // 더 많은 참가자를 고려하도록 수정 (균등 배정 기회 증가)
+        estimatedParticipantsNeeded = Math.min(estimatedParticipantsNeeded + Math.ceil(sortedRegularsForCore.length * 0.3), sortedRegularsForCore.length);
+        
         let selectedRegularsList = sortedRegularsForCore.slice(0, estimatedParticipantsNeeded);
-        selectedRegularsList.sort(() => Math.random() - 0.5);
+        
+        // 랜덤 섞기 전에 현재 월 새벽 배정이 적은 순으로 정렬
+        selectedRegularsList.sort((pA, pB) => {
+            const pAEnglishType = getEnglishParticipantType(pA.type);
+            const pBEnglishType = getEnglishParticipantType(pB.type);
+            const coreCategoryKeyA = pAEnglishType === 'elementary' ? CORE_CATEGORIES_MAP.elementary : CORE_CATEGORIES_MAP.middle;
+            const coreCategoryKeyB = pBEnglishType === 'elementary' ? CORE_CATEGORIES_MAP.elementary : CORE_CATEGORIES_MAP.middle;
+            
+            const currentCoreCountA = assignmentCounts.get(pA.id)?.get(coreCategoryKeyA) || 0;
+            const currentCoreCountB = assignmentCounts.get(pB.id)?.get(coreCategoryKeyB) || 0;
+            
+            if (currentCoreCountA !== currentCoreCountB) return currentCoreCountA - currentCoreCountB;
+            return Math.random() - 0.5;
+        });
+        
         let regularsAssignedInPhase2 = new Set();
 
         for (const slot of remainingUnfilledCoreSlots) {
@@ -355,27 +388,65 @@ export async function generateSchedule(year, month) {
                 }
                 if (p1SkipReason) { /*console.log(`Phase 2: Reg_Test: P1 ${candidateP1.name} skipped for slot ${slot.date} because: ${p1SkipReason}`);*/ continue;}
                 p1 = candidateP1;
-                // console.log(`Phase 2: Reg_Test: Tentative P1 ${p1.name} for slot ${slot.date}. Searching P2.`);
-                for (let j = 0; j < selectedRegularsList.length; j++) {
-                    if (i === j) continue;
-                    const candidateP2 = selectedRegularsList[j];
-                    const candidateP2EnglishType = getEnglishParticipantType(candidateP2.type);
-                    let p2SkipReason = "";
-                    if (regularsAssignedInPhase2.has(candidateP2.id)) p2SkipReason = "already assigned in Phase 2";
-                    else if (candidateP2EnglishType !== slot.type) p2SkipReason = `type (${candidateP2.type} -> ${candidateP2EnglishType}) mismatch slot type (${slot.type})`;
-                    else if (tempDailyAssignments.get(slot.date)?.has(candidateP2.id)) p2SkipReason = "partner daily conflict";
-                    else if (tempParticipantWeeklyAssignments.get(candidateP2.id)?.has(slotWeek)) p2SkipReason = "partner weekly conflict";
-                    else if (!isPairingAllowed(p1.id, candidateP2.id, participantsMap)) p2SkipReason = "pairing not allowed";
-                    else {
-                         const p2TotalAssignments = assignmentCounts.get(candidateP2.id)?.get('total') || 0;
-                        if (p2TotalAssignments >= MAX_ALLOWED_ASSIGNMENTS) p2SkipReason = "at MAX_ALLOWED_ASSIGNMENTS";
-                        else if (p2TotalAssignments >= 2 && (tempParticipantWeeklyAssignments.get(candidateP2.id)?.has(slotWeek) || participantWeeklyAssignments.get(candidateP2.id)?.has(slotWeek))) p2SkipReason = "has >=2 total and weekly conflict";
-                    }
-                    if (!p2SkipReason) { p2 = candidateP2; /*console.log(`Phase 2: Reg_Test: Found P2 ${p2.name} for P1 ${p1.name} in slot ${slot.date}`);*/ break; }
-                    // else { console.log(`Phase 2: Reg_Test: P2 ${candidateP2.name} skipped for P1 ${p1.name} because: ${p2SkipReason}`);}
+                
+                // 새벽 배정이 적은 순서로 파트너 후보 정렬
+                const potentialP2List = selectedRegularsList.filter((p, idx) => {
+                    if (idx === i) return false; // 자기 자신 제외
+                    
+                    const pEnglishType = getEnglishParticipantType(p.type);
+                    if (pEnglishType !== slot.type) return false; // 타입 불일치 제외
+                    
+                    if (regularsAssignedInPhase2.has(p.id)) return false; // 이미 Phase 2에서 배정된 경우 제외
+                    if (tempDailyAssignments.get(slot.date)?.has(p.id)) return false; // 해당 일에 이미 배정된 경우 제외
+                    if (tempParticipantWeeklyAssignments.get(p.id)?.has(slotWeek)) return false; // 해당 주에 이미 배정된 경우 제외
+                    
+                    const pTotalAssignments = assignmentCounts.get(p.id)?.get('total') || 0;
+                    if (pTotalAssignments >= MAX_ALLOWED_ASSIGNMENTS) return false; // 최대 배정 횟수 초과 제외
+                    
+                    if (pTotalAssignments >= 2 && 
+                        (tempParticipantWeeklyAssignments.get(p.id)?.has(slotWeek) || 
+                         participantWeeklyAssignments.get(p.id)?.has(slotWeek))) return false; // 주간 충돌 제외
+                    
+                    if (!isPairingAllowed(p1.id, p.id, participantsMap)) return false; // 페어링 불가 제외
+                    
+                    return true;
+                });
+                
+                // 새벽 배정이 적은 순서로 정렬
+                const sortedP2Candidates = potentialP2List.sort((pA, pB) => {
+                    const pAEnglishType = getEnglishParticipantType(pA.type);
+                    const pBEnglishType = getEnglishParticipantType(pB.type);
+                    const coreCategoryKeyA = pAEnglishType === 'elementary' ? CORE_CATEGORIES_MAP.elementary : CORE_CATEGORIES_MAP.middle;
+                    const coreCategoryKeyB = pBEnglishType === 'elementary' ? CORE_CATEGORIES_MAP.elementary : CORE_CATEGORIES_MAP.middle;
+                    
+                    // 현재 월 새벽 배정 횟수 비교
+                    const currentCoreCountA = assignmentCounts.get(pA.id)?.get(coreCategoryKeyA) || 0;
+                    const currentCoreCountB = assignmentCounts.get(pB.id)?.get(coreCategoryKeyB) || 0;
+                    
+                    if (currentCoreCountA !== currentCoreCountB) return currentCoreCountA - currentCoreCountB;
+                    
+                    // 이전 월 새벽 배정 횟수 비교
+                    const prevCoreCountA = prevMonthAssignmentCounts.get(pA.id)?.get(coreCategoryKeyA) || 0;
+                    const prevCoreCountB = prevMonthAssignmentCounts.get(pB.id)?.get(coreCategoryKeyB) || 0;
+                    
+                    if (prevCoreCountA !== prevCoreCountB) return prevCoreCountA - prevCoreCountB;
+                    
+                    // 총 배정 횟수 비교
+                    const totalA = assignmentCounts.get(pA.id)?.get('total') || 0;
+                    const totalB = assignmentCounts.get(pB.id)?.get('total') || 0;
+                    
+                    if (totalA !== totalB) return totalA - totalB;
+                    
+                    return Math.random() - 0.5;
+                });
+                
+                // 정렬된 후보 중 첫 번째를 선택
+                if (sortedP2Candidates.length > 0) {
+                    p2 = sortedP2Candidates[0];
+                    break;
                 }
-                if (p1 && p2) break;
-                else p1 = null;
+                
+                if (!p2) p1 = null; // p2를 찾지 못했으면 p1도 초기화
             }
             if (p1 && p2) {
                 // console.log(`Phase 2: Reg_Test: SUCCESS - Assigning regulars ${p1.name} and ${p2.name} to slot ${slot.date} ${slot.time}`);
@@ -1077,5 +1148,77 @@ export async function generateSchedule(year, month) {
         }
     });
 
+    // 월간 배정 카운트 저장
+    const assignmentCountsToSave = [];
+    for (const [participantId, categoryMap] of assignmentCounts) {
+        for (const [categoryKey, count] of categoryMap) {
+            if (count > 0) { // 배정 횟수가 있는 것만 저장
+                assignmentCountsToSave.push({ participantId, categoryKey, count });
+            }
+        }
+    }
+    await db.saveMonthlyAssignmentCounts(year, month, assignmentCountsToSave);
+    
+    // 새벽 배정 현황 로그 출력
+    console.log(`===== ${year}년 ${month}월 새벽 배정 현황 =====`);
+    const elementaryCoreKey = CORE_CATEGORIES_MAP.elementary; // elementary_6am
+    const middleCoreKey = CORE_CATEGORIES_MAP.middle; // middle_7am
+    
+    // 초등부 새벽 배정 현황
+    console.log("초등부 새벽 배정 현황:");
+    const elementaryParticipantsWithCoreCount = elementaryParticipants
+        .filter(p => p.isActive)
+        .map(p => ({
+            name: p.name,
+            id: p.id,
+            coreCount: assignmentCounts.get(p.id)?.get(elementaryCoreKey) || 0
+        }))
+        .sort((a, b) => b.coreCount - a.coreCount); // 배정 많은 순으로 정렬
+    
+    elementaryParticipantsWithCoreCount.forEach(p => {
+        console.log(`${p.name}: ${p.coreCount}회`);
+    });
+    
+    // 중등부 새벽 배정 현황
+    console.log("\n중등부 새벽 배정 현황:");
+    const middleParticipantsWithCoreCount = middleParticipants
+        .filter(p => p.isActive)
+        .map(p => ({
+            name: p.name,
+            id: p.id,
+            coreCount: assignmentCounts.get(p.id)?.get(middleCoreKey) || 0
+        }))
+        .sort((a, b) => b.coreCount - a.coreCount); // 배정 많은 순으로 정렬
+    
+    middleParticipantsWithCoreCount.forEach(p => {
+        console.log(`${p.name}: ${p.coreCount}회`);
+    });
+    
+    // 새벽 배정 통계
+    const elementaryCoreStats = calculateCoreStats(elementaryParticipantsWithCoreCount.map(p => p.coreCount));
+    const middleCoreStats = calculateCoreStats(middleParticipantsWithCoreCount.map(p => p.coreCount));
+    
+    console.log("\n새벽 배정 통계:");
+    console.log(`초등부 - 평균: ${elementaryCoreStats.average.toFixed(2)}회, 최대: ${elementaryCoreStats.max}회, 최소: ${elementaryCoreStats.min}회, 표준편차: ${elementaryCoreStats.stdDev.toFixed(2)}`);
+    console.log(`중등부 - 평균: ${middleCoreStats.average.toFixed(2)}회, 최대: ${middleCoreStats.max}회, 최소: ${middleCoreStats.min}회, 표준편차: ${middleCoreStats.stdDev.toFixed(2)}`);
+    console.log("=====================================");
+
     return { schedule: scheduleData, assignmentSummary: summaryString, assignmentCounts: assignmentCounts };
+}
+
+// 새벽 배정 통계 계산 함수
+function calculateCoreStats(counts) {
+    if (counts.length === 0) return { average: 0, max: 0, min: 0, stdDev: 0 };
+    
+    const sum = counts.reduce((acc, val) => acc + val, 0);
+    const average = sum / counts.length;
+    const max = Math.max(...counts);
+    const min = Math.min(...counts);
+    
+    // 표준편차 계산
+    const squaredDiffs = counts.map(count => Math.pow(count - average, 2));
+    const variance = squaredDiffs.reduce((acc, val) => acc + val, 0) / counts.length;
+    const stdDev = Math.sqrt(variance);
+    
+    return { average, max, min, stdDev };
 }

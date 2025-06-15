@@ -175,8 +175,8 @@ export async function initAttendanceView(containerId) {
     }
 
     resetAllAbsencesBtn.title = '현재 보기의 모든 결석을 출석으로 변경';
-    resetAllAbsencesBtn.innerHTML = '<i data-lucide="trash-2" class="h-4 w-4"></i>';
-    resetAllAbsencesBtn.className = 'btn btn-icon btn-outline-danger p-1.5'; // Standard class, margin handled by container
+    resetAllAbsencesBtn.innerHTML = '<i data-lucide="trash-2" class="h-5 w-5"></i>';
+    resetAllAbsencesBtn.className = 'btn btn-icon btn-warning p-2';
 
     if (sectionTitleH2) {
         let titleContainer = viewElement.querySelector('#attendance-title-container');
