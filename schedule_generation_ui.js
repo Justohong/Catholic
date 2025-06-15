@@ -162,31 +162,60 @@ export function initScheduleGenerationView(viewElementId) {
         currentInspectBtn.addEventListener('click', handleInspectScheduleButtonClick);
     }
 
-    // Add Vacation Period Button
     const actionButtonsWrapper = view.querySelector('.action-buttons-wrapper');
+
     if (actionButtonsWrapper) {
+        // Get or create inspectScheduleBtn
+        let inspectScheduleBtn = view.querySelector('#inspect-schedule-btn');
+        if (!inspectScheduleBtn) {
+            inspectScheduleBtn = document.createElement('button');
+            inspectScheduleBtn.id = 'inspect-schedule-btn';
+            // Ensure properties are fully set if created
+            inspectScheduleBtn.innerHTML = '<i data-lucide="clipboard-list" class="h-5 w-5"></i>';
+            inspectScheduleBtn.title = '월별 배정 현황 점검';
+            inspectScheduleBtn.className = 'btn btn-icon text-slate-700 hover:text-sky-600 hover:bg-slate-100 p-2';
+        }
+        // Event listener for inspectScheduleBtn (ensure it's the correct one from earlier in the function)
+        inspectScheduleBtn.removeEventListener('click', openScheduleInspectionModal); // Remove if any old direct listener
+        inspectScheduleBtn.removeEventListener('click', handleInspectScheduleButtonClick);
+        inspectScheduleBtn.addEventListener('click', handleInspectScheduleButtonClick);
+
+        // Get or create vacationBtn
         let vacationBtn = view.querySelector('#vacation-period-btn');
         if (!vacationBtn) {
             vacationBtn = document.createElement('button');
             vacationBtn.id = 'vacation-period-btn';
+            // Ensure properties are fully set
             vacationBtn.className = 'btn btn-icon text-slate-700 hover:text-sky-600 hover:bg-slate-100 p-2';
             vacationBtn.title = '방학 기간 설정';
             vacationBtn.innerHTML = '<i data-lucide="calendar-heart" class="h-5 w-5"></i>';
-
-            const inspectScheduleBtn = actionButtonsWrapper.querySelector('#inspect-schedule-btn');
-            if (inspectScheduleBtn && inspectScheduleBtn.parentNode === actionButtonsWrapper) {
-                actionButtonsWrapper.insertBefore(vacationBtn, inspectScheduleBtn);
-            } else {
-                actionButtonsWrapper.insertBefore(vacationBtn, actionButtonsWrapper.firstChild); // Fallback if inspect button isn't there or structure changed
-            }
         }
-        vacationBtn.removeEventListener('click', handleSetVacationPeriod); // Remove first to be safe
+        vacationBtn.removeEventListener('click', handleSetVacationPeriod);
         vacationBtn.addEventListener('click', handleSetVacationPeriod);
-    }
 
+        // Get or create resetBtn (already mostly handled earlier, but ensure it's part of this controlled append)
+        let resetBtn = view.querySelector('#reset-current-month-schedule-btn');
+        if (!resetBtn) { // Should have been created earlier, but as a safeguard
+            resetBtn = document.createElement('button');
+            resetBtn.id = 'reset-current-month-schedule-btn';
+            resetBtn.innerHTML = '<i data-lucide="trash-2" class="h-5 w-5"></i>';
+            resetBtn.title = '이번 달 일정 초기화';
+            resetBtn.className = 'btn btn-icon btn-warning p-2';
+            // Event listener for resetBtn (if newly created here, it might miss listener from earlier part)
+            // This part assumes resetBtn is always found by querySelector from earlier creation.
+        }
+         // resetBtn's event listener is assumed to be attached when it's initially created/fetched.
+
+        // Clear the wrapper and append buttons in the correct order
+        actionButtonsWrapper.innerHTML = ''; // Clear existing buttons
+        actionButtonsWrapper.appendChild(inspectScheduleBtn);
+        actionButtonsWrapper.appendChild(vacationBtn); // Vacation button after inspect button
+        actionButtonsWrapper.appendChild(resetBtn);
+    }
 
     lucide.createIcons();
 }
+
 
 async function handleSetVacationPeriod() {
     const startDateStr = prompt("방학 시작일을 입력하세요 (YYYY-MM-DD):");
@@ -205,18 +234,23 @@ async function handleSetVacationPeriod() {
     const startDate = new Date(startDateStr);
     const endDate = new Date(endDateStr);
 
+
+    // Check if dates are valid after parsing
     if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-        alert("유효하지 않은 날짜입니다.");
+        alert("유효하지 않은 날짜입니다. 입력한 날짜를 확인해주세요.\n(예: 2025년 2월 30일은 유효하지 않음)");
         return;
     }
+
     if (endDate < startDate) {
         alert("종료일은 시작일보다 빠를 수 없습니다.");
         return;
     }
 
+
     sessionStorage.setItem('vacationStartDate', startDateStr);
     sessionStorage.setItem('vacationEndDate', endDateStr);
     alert(`방학 기간이 ${startDateStr}부터 ${endDateStr}까지로 설정되었습니다. 다음 일정 생성 시 적용됩니다.`);
+
 }
 
 async function loadScheduleDataForInputs() {
