@@ -47,59 +47,49 @@ export async function unassignParticipant(year, month, date, time, participantId
 
 export async function confirmSchedule(year, month) {
     if (!year || !month) {
-        console.error("SHARE_LOGIC.confirmSchedule: Year and month are required.");
+        console.error("confirmSchedule: Year and month are required.");
         return { success: false, error: "Year and month are required." };
     }
     try {
-        const dbSuccess = await setScheduleConfirmation(year, month, true);
-        if (dbSuccess) { // dbSuccess should be true if no error was thrown
-            console.log(`SHARE_LOGIC.confirmSchedule: SUCCESS for ${year}-${month}.`);
-            return { success: true };
-        } else {
-            // This else block might not be reachable if db function always throws on error
-            // and returns true on success. Kept for logical completeness if db func changes.
-            console.warn(`SHARE_LOGIC.confirmSchedule: DB operation returned falsy for ${year}-${month} but did not throw.`);
-            return { success: false, error: "Database operation failed to confirm schedule without throwing an explicit error." };
-        }
+        await setScheduleConfirmation(year, month, true);
+        console.log(`Schedule for ${year}-${month} confirmed in share_logic.`);
+        return { success: true };
     } catch (error) {
-        console.error(`SHARE_LOGIC.confirmSchedule: FAILURE for ${year}-${month}. Error:`, error);
-        return { success: false, error: error.message || "Failed to confirm schedule due to an exception." };
+        console.error(`Error confirming schedule for ${year}-${month}:`, error);
+        return { success: false, error: error.message || "Failed to confirm schedule." };
     }
 }
 
 export async function cancelScheduleConfirmation(year, month) {
     if (!year || !month) {
-        console.error("SHARE_LOGIC.cancelScheduleConfirmation: Year and month are required.");
+        console.error("cancelScheduleConfirmation: Year and month are required.");
         return { success: false, error: "Year and month are required." };
     }
     try {
-        const dbSuccess = await removeScheduleConfirmation(year, month);
-        if (dbSuccess) { // dbSuccess should be true
-            console.log(`SHARE_LOGIC.cancelScheduleConfirmation: SUCCESS for ${year}-${month}.`);
-            return { success: true };
-        } else {
-            console.warn(`SHARE_LOGIC.cancelScheduleConfirmation: DB operation returned falsy for ${year}-${month} but did not throw.`);
-            return { success: false, error: "Database operation failed to cancel schedule confirmation without an explicit error." };
-        }
+        await removeScheduleConfirmation(year, month);
+        console.log(`Schedule confirmation for ${year}-${month} cancelled in share_logic.`);
+        return { success: true };
     } catch (error) {
-        console.error(`SHARE_LOGIC.cancelScheduleConfirmation: FAILURE for ${year}-${month}. Error:`, error);
-        return { success: false, error: error.message || "Failed to cancel schedule confirmation due to an exception." };
+        console.error(`Error cancelling schedule confirmation for ${year}-${month}:`, error);
+        return { success: false, error: error.message || "Failed to cancel schedule confirmation." };
     }
 }
 
 export async function isScheduleConfirmed(year, month) {
     if (!year || !month) {
-        console.error("SHARE_LOGIC.isScheduleConfirmed: Year and month are required.");
+        console.error("isScheduleConfirmed: Year and month are required.");
+        // Return true or throw error? Let's return a value indicating uncertainty or error.
+        // For now, let's assume if year/month are invalid, it cannot be confirmed.
         return false;
     }
     try {
         const confirmed = await getScheduleConfirmation(year, month);
-        // console.log(`SHARE_LOGIC.isScheduleConfirmed: Status for ${year}-${month} is ${confirmed}.`);
-        return confirmed; // This will be true or false from DB if successful
+        return confirmed;
     } catch (error) {
-        // This error is now from db.getScheduleConfirmation if it failed
-        console.error(`SHARE_LOGIC.isScheduleConfirmed: Error checking confirmation for ${year}-${month}. Defaulting to 'false'. Error:`, error);
-        return false; // Default to not confirmed if there was an issue reading the status
+        console.error(`Error checking schedule confirmation for ${year}-${month}:`, error);
+        // In case of error, should we assume not confirmed or propagate error?
+        // For safety, let's assume not confirmed if there's an error reading status.
+        return false;
     }
 }
 

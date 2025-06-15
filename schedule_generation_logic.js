@@ -84,9 +84,10 @@ function isPairingAllowed(p1_id, p2_id, participantsMap) {
 export async function generateSchedule(year, month) {
     // Add this block at the beginning
     const scheduleIsConfirmed = await isScheduleConfirmed(year, month);
-    // console.log(`SCHEDULE_GENERATION_LOGIC: Checked isScheduleConfirmed for ${year}-${month}. Result: ${scheduleIsConfirmed}`); // Optional: for debugging
-    if (scheduleIsConfirmed === true) { // Explicitly check for true
-        console.log(`SCHEDULE_GENERATION_LOGIC: Blocking generation for ${year}-${month} - schedule is confirmed.`);
+    if (scheduleIsConfirmed) {
+        console.log(`Schedule generation for ${year}-${month} blocked because it is confirmed.`);
+        // Throw a specific error or return an object that the UI layer can uniquely identify.
+        // Using an error with a specific message is common.
         throw new Error(`SCHEDULE_CONFIRMED: ${year}년 ${month}월의 일정은 이미 확정되었습니다. 재생성할 수 없습니다.`);
     }
 

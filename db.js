@@ -90,55 +90,27 @@ export async function setScheduleConfirmation(year, month, status) {
     const db = await openDB();
     const tx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readwrite');
     const store = tx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
-
-    try {
-        // Perform the put operation. This is queued within the transaction.
-        store.put({ year, month, confirmed: status });
-
-        // Wait for the transaction to complete successfully.
-        // If any operation within the transaction (like the put) fails,
-        // tx.done will reject.
-        await tx.done;
-
-        console.log(`DB.setScheduleConfirmation: SUCCESS for ${year}-${month} to ${status}.`);
-        return true; // Indicate success
-    } catch (error) {
-        console.error(`DB.setScheduleConfirmation: FAILURE for ${year}-${month} to ${status}. Error:`, error);
-        throw new Error(`Failed to set schedule confirmation: ${error.message || error}`);
-    }
+    await store.put({ year, month, confirmed: status });
+    await tx.done;
+    console.log(`Schedule confirmation status for ${year}-${month} set to ${status}.`);
 }
 
 export async function getScheduleConfirmation(year, month) {
     const db = await openDB();
     const tx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readonly');
     const store = tx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
-
-    try {
-        const record = await store.get([year, month]); // Assuming this await works (e.g. 'idb' lib)
-        await tx.done;
-        // console.log(`DB.getScheduleConfirmation: Read for ${year}-${month}. Record:`, record);
-        return record ? record.confirmed : false;
-    } catch (error) {
-        console.error(`DB.getScheduleConfirmation: Error for ${year}-${month}:`, error);
-        // Re-throw so upstream knows the read failed.
-        throw new Error(`Database error while getting schedule confirmation: ${error.message || error}`);
-    }
+    const record = await store.get([year, month]);
+    await tx.done;
+    return record ? record.confirmed : false; // Default to false if no record found
 }
 
 export async function removeScheduleConfirmation(year, month) {
     const db = await openDB();
     const tx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readwrite');
     const store = tx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
-
-    try {
-        store.delete([year, month]); // Queue delete
-        await tx.done; // Wait for transaction
-        console.log(`DB.removeScheduleConfirmation: SUCCESS for ${year}-${month}.`);
-        return true;
-    } catch (error) {
-        console.error(`DB.removeScheduleConfirmation: FAILURE for ${year}-${month}. Error:`, error);
-        throw new Error(`Failed to remove schedule confirmation: ${error.message || error}`);
-    }
+    await store.delete([year, month]);
+    await tx.done;
+    console.log(`Schedule confirmation for ${year}-${month} removed.`);
 }
 
 export async function addParticipant(participant) {
