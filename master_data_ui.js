@@ -65,7 +65,7 @@ export function renderMasterDataView(containerId, onAdd, onExcelUpload, onDelete
                     <i data-lucide="file-up" class="mr-2 h-5 w-5"></i>엑셀 업로드
                 </button>
                 <button id="downloadExcelTemplateBtn" class="btn btn-secondary w-full sm:w-auto ml-2">
-                    <i data-lucide="file-spreadsheet" class="mr-2 h-5 w-5"></i>양식 다운로드
+                    <i data-lucide="file-spreadsheet" class="mr-2 h-5 w-5"></i>엑셀 양식
                 </button>
             </div>
         </div>
