@@ -162,90 +162,121 @@ export function initScheduleGenerationView(viewElementId) {
         currentInspectBtn.addEventListener('click', handleInspectScheduleButtonClick);
     }
 
-    // Add Vacation Period Button
     const actionButtonsWrapper = view.querySelector('.action-buttons-wrapper');
+
     if (actionButtonsWrapper) {
+        // Get or create inspectScheduleBtn
+        let inspectScheduleBtn = view.querySelector('#inspect-schedule-btn');
+        if (!inspectScheduleBtn) {
+            inspectScheduleBtn = document.createElement('button');
+            inspectScheduleBtn.id = 'inspect-schedule-btn';
+            // Ensure properties are fully set if created
+            inspectScheduleBtn.innerHTML = '<i data-lucide="clipboard-list" class="h-5 w-5"></i>';
+            inspectScheduleBtn.title = '월별 배정 현황 점검';
+            inspectScheduleBtn.className = 'btn btn-icon text-slate-700 hover:text-sky-600 hover:bg-slate-100 p-2';
+        }
+        // Event listener for inspectScheduleBtn (ensure it's the correct one from earlier in the function)
+        inspectScheduleBtn.removeEventListener('click', openScheduleInspectionModal); // Remove if any old direct listener
+        inspectScheduleBtn.removeEventListener('click', handleInspectScheduleButtonClick);
+        inspectScheduleBtn.addEventListener('click', handleInspectScheduleButtonClick);
+
+        // Get or create vacationBtn
         let vacationBtn = view.querySelector('#vacation-period-btn');
         if (!vacationBtn) {
             vacationBtn = document.createElement('button');
             vacationBtn.id = 'vacation-period-btn';
+            // Ensure properties are fully set
             vacationBtn.className = 'btn btn-icon text-slate-700 hover:text-sky-600 hover:bg-slate-100 p-2';
             vacationBtn.title = '방학 기간 설정';
             vacationBtn.innerHTML = '<i data-lucide="calendar-heart" class="h-5 w-5"></i>';
-
-            const inspectScheduleBtn = actionButtonsWrapper.querySelector('#inspect-schedule-btn');
-            if (inspectScheduleBtn && inspectScheduleBtn.parentNode === actionButtonsWrapper) {
-                actionButtonsWrapper.insertBefore(vacationBtn, inspectScheduleBtn);
-            } else {
-                actionButtonsWrapper.insertBefore(vacationBtn, actionButtonsWrapper.firstChild); // Fallback if inspect button isn't there or structure changed
-            }
         }
-        vacationBtn.removeEventListener('click', handleSetVacationPeriod); // Remove first to be safe
+        vacationBtn.removeEventListener('click', handleSetVacationPeriod);
         vacationBtn.addEventListener('click', handleSetVacationPeriod);
-    }
 
+        // Get or create resetBtn (already mostly handled earlier, but ensure it's part of this controlled append)
+        let resetBtn = view.querySelector('#reset-current-month-schedule-btn');
+        if (!resetBtn) { // Should have been created earlier, but as a safeguard
+            resetBtn = document.createElement('button');
+            resetBtn.id = 'reset-current-month-schedule-btn';
+            resetBtn.innerHTML = '<i data-lucide="trash-2" class="h-5 w-5"></i>';
+            resetBtn.title = '이번 달 일정 초기화';
+            resetBtn.className = 'btn btn-icon btn-warning p-2';
+            // Event listener for resetBtn (if newly created here, it might miss listener from earlier part)
+            // This part assumes resetBtn is always found by querySelector from earlier creation.
+        }
+         // resetBtn's event listener is assumed to be attached when it's initially created/fetched.
+
+        // Clear the wrapper and append buttons in the correct order
+        actionButtonsWrapper.innerHTML = ''; // Clear existing buttons
+        actionButtonsWrapper.appendChild(inspectScheduleBtn);
+        actionButtonsWrapper.appendChild(vacationBtn); // Vacation button after inspect button
+        actionButtonsWrapper.appendChild(resetBtn);
+    }
 
     lucide.createIcons();
 }
 
 function formatDateInputString(inputStr) {
-    if (!inputStr) return null;
-    inputStr = inputStr.replace(/\s+/g, ''); // Remove any spaces
+    if (!inputStr) return null; // Return null for empty/null input
+    const trimmedInput = inputStr.replace(/\s+/g, ''); // Remove all spaces
 
     // Check if already in YYYY-MM-DD format
-    const ymdRegex = /^(\d{4})-(\d{2})-(\d{2})$/;
-    if (ymdRegex.test(inputStr)) {
-        return inputStr;
+    const ymdRegex = /^\d{4}-\d{2}-(\d{2})$/;
+    if (ymdRegex.test(trimmedInput)) {
+        return trimmedInput;
     }
 
     // Check if in YYYYMMDD format (8 digits)
     const eightDigitRegex = /^(\d{4})(\d{2})(\d{2})$/;
-    const match = inputStr.match(eightDigitRegex);
+    const match = trimmedInput.match(eightDigitRegex);
     if (match) {
-        // Validate month and day ranges basic check before formatting
         const year = parseInt(match[1]);
         const month = parseInt(match[2]);
         const day = parseInt(match[3]);
 
+        // Basic validation for month and day ranges
         if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-             // Further validation (like days in month) will be caught by `new Date()` later
+            // More detailed validation (like days in month) will be caught by `new Date()` later
             return `${match[1]}-${match[2]}-${match[3]}`;
+        } else {
+            return trimmedInput; // Invalid YYYYMMDD (e.g. 20231301), return original to fail regex
         }
     }
-    return inputStr; // Return original if no rules match, for existing validation to catch
+    return trimmedInput; // Return original if no rules match
 }
 
 async function handleSetVacationPeriod() {
-    const startDateStr = prompt("방학 시작일을 입력하세요 (YYYY-MM-DD 또는 YYYYMMDD):");
-    if (!startDateStr) return; // User cancelled
+    const startDateInput = prompt("방학 시작일을 입력하세요 (YYYY-MM-DD 또는 YYYYMMDD 형식):");
+    if (startDateInput === null) return; // User cancelled prompt
 
-    const endDateStr = prompt("방학 종료일을 입력하세요 (YYYY-MM-DD 또는 YYYYMMDD):");
-    if (!endDateStr) return; // User cancelled
+    const endDateInput = prompt("방학 종료일을 입력하세요 (YYYY-MM-DD 또는 YYYYMMDD 형식):");
+    if (endDateInput === null) return; // User cancelled prompt
 
-    let processedStartDateStr = formatDateInputString(startDateStr);
-    let processedEndDateStr = formatDateInputString(endDateStr);
+    let processedStartDateStr = formatDateInputString(startDateInput);
+    let processedEndDateStr = formatDateInputString(endDateInput);
 
-    // Basic validation (use processed strings)
     const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-    if (!dateRegex.test(processedStartDateStr) || !dateRegex.test(processedEndDateStr)) {
-        alert("날짜 형식이 올바르지 않습니다. YYYY-MM-DD 또는 YYYYMMDD 형식으로 입력해주세요.");
+    if (!processedStartDateStr || !processedEndDateStr || !dateRegex.test(processedStartDateStr) || !dateRegex.test(processedEndDateStr)) {
+        alert("날짜 형식이 올바르지 않습니다. YYYY-MM-DD 또는 YYYYMMDD 형식으로 입력해주세요.\n예: 2025-08-01 또는 20250801");
         return;
     }
 
-    const startDate = new Date(processedStartDateStr); // Use processed strings
-    const endDate = new Date(processedEndDateStr);   // Use processed strings
+    const startDate = new Date(processedStartDateStr);
+    const endDate = new Date(processedEndDateStr);
 
+    // Check if dates are valid after parsing
     if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
-        alert("유효하지 않은 날짜입니다.");
+        alert("유효하지 않은 날짜입니다. 입력한 날짜를 확인해주세요.\n(예: 2025년 2월 30일은 유효하지 않음)");
         return;
     }
+
     if (endDate < startDate) {
         alert("종료일은 시작일보다 빠를 수 없습니다.");
         return;
     }
 
-    sessionStorage.setItem('vacationStartDate', processedStartDateStr); // Store the processed (potentially formatted) string
-    sessionStorage.setItem('vacationEndDate', processedEndDateStr);   // Store the processed (potentially formatted) string
+    sessionStorage.setItem('vacationStartDate', processedStartDateStr);
+    sessionStorage.setItem('vacationEndDate', processedEndDateStr);
     alert(`방학 기간이 ${processedStartDateStr}부터 ${processedEndDateStr}까지로 설정되었습니다. 다음 일정 생성 시 적용됩니다.`);
 }
 

@@ -335,11 +335,13 @@ async function handleExportExcel() {
     messageDiv.className = 'my-2 text-slate-600';
 
     try {
+        const KOREAN_DAYS_SHORT = ['일', '월', '화', '수', '목', '금', '토'];
         const participantsMap = new Map(allParticipants.map(p => [p.id, p]));
-        const excelDataRows = []; // Renamed to avoid confusion with excelData object from other contexts
+        const excelDataRows = [];
 
         currentScheduleData.data.forEach(daySchedule => {
             const dateStr = daySchedule.date;
+            const dayOfWeek = KOREAN_DAYS_SHORT[new Date(dateStr).getDay()];
             daySchedule.timeSlots.forEach(slot => {
                 const timeStr = slot.time;
                 const typeStr = slot.type === 'elementary' ? '초등' : slot.type === 'middle' ? '중등' : slot.type;
@@ -360,6 +362,7 @@ async function handleExportExcel() {
 
                 excelDataRows.push({
                     "년월일": dateStr,
+                    "요일": dayOfWeek,
                     "시간": timeStr,
                     "구분": typeStr,
                     "배정인원1": person1Name,
@@ -368,15 +371,14 @@ async function handleExportExcel() {
             });
         });
 
-        // We create headers directly with sheet_add_aoa, so pass empty array to json_to_sheet and skipHeader true
         const ws = XLSX.utils.json_to_sheet(excelDataRows, { skipHeader: true });
 
-        const headerRow = ["년월일", "시간", "구분", "배정인원1", "배정인원2"];
+        const headerRow = ["년월일", "요일", "시간", "구분", "배정인원1", "배정인원2"];
         XLSX.utils.sheet_add_aoa(ws, [headerRow], { origin: "A1" });
 
-        const fillEven = { fgColor: { rgb: "F0F0F0" } }; // Light gray
         const cols = [
             { wch: 12 }, // 년월일
+            { wch: 5 },  // 요일
             { wch: 8 },  // 시간
             { wch: 8 },  // 구분
             { wch: 15 }, // 배정인원1
@@ -384,21 +386,34 @@ async function handleExportExcel() {
         ];
         ws['!cols'] = cols;
 
-        for (let i = 0; i < excelDataRows.length; i++) {
-            // Zebra striping for data rows. Header is row 1. Data starts at row 2.
-            // (i) is 0-indexed for excelDataRows.
-            // So, excelDataRows[0] is sheet row 2. excelDataRows[1] is sheet row 3.
-            // We want to stripe sheet rows 3, 5, 7... which are excelDataRows[1], excelDataRows[3]... (i.e. i is odd)
-            if (i % 2 === 1) {
-                const rowIndexInSheet = i + 2; // +1 for 0-to-1 index, +1 because data starts after header
-                ['A', 'B', 'C', 'D', 'E'].forEach(colLetter => {
+        const saturdayStyle = { fill: { fgColor: { rgb: "ADD8E6" } } }; // Light Blue
+        const sundayStyle = { fill: { fgColor: { rgb: "FFCCCB" } } };   // Light Red
+        const fillEven = { fgColor: { rgb: "F0F0F0" } };
+
+        excelDataRows.forEach((rowData, index) => {
+            const rowIndexInSheet = index + 2;
+            const dateStrForRow = rowData["년월일"];
+            const dayOfWeekNumeric = new Date(dateStrForRow).getDay();
+
+            let rowStyle = null;
+            if (dayOfWeekNumeric === 0) { // Sunday
+                rowStyle = sundayStyle;
+            } else if (dayOfWeekNumeric === 6) { // Saturday
+                rowStyle = saturdayStyle;
+            } else {
+                if (index % 2 === 1) {
+                    rowStyle = fillEven;
+                }
+            }
+
+            if (rowStyle) {
+                ['A', 'B', 'C', 'D', 'E', 'F'].forEach(colLetter => {
                     const cellRef = colLetter + rowIndexInSheet;
-                    // Ensure cell object exists, even if value is empty, for styling
-                    if (!ws[cellRef]) ws[cellRef] = { t: 's', v: '' }; // Create empty string cell if not present
-                    ws[cellRef].s = { fill: fillEven };
+                    if (!ws[cellRef]) ws[cellRef] = { t: 's', v: '' };
+                    ws[cellRef].s = rowStyle;
                 });
             }
-        }
+        });
 
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "월별일정");
@@ -479,25 +494,34 @@ function renderShareCalendar(year, month, scheduleDays, participantsList) {
 
     const tbody = table.createTBody();
     let date = 1;
-    for (let i = 0; i < 6; i++) { 
-        const row = tbody.insertRow();
-        for (let j = 0; j < 7; j++) {
-            const cell = row.insertCell();
-            // Base cell styles
-            cell.style.border = '1px solid #e2e8f0'; // slate-200
-            cell.style.padding = '0.375rem'; // p-1.5 (6px)
+    let allDatesRendered = false;
+
+    for (let i = 0; i < 6; i++) { // Loop for up to 6 weeks
+        if (allDatesRendered) break; // If all dates are done, no need for more weeks.
+
+        const row = document.createElement('tr'); // Create row, but don't append to tbody yet
+        let cellsForThisRow = [];
+        let rowContainsActualDate = false;
+
+        for (let j = 0; j < 7; j++) { // Loop for days in the week
+            const cell = document.createElement('td');
+            // Apply base cell styles (border, padding, etc.)
+            cell.style.border = '1px solid #e2e8f0'; /* slate-200 */
+            cell.style.padding = '0.375rem'; /* p-1.5 */
             cell.style.verticalAlign = 'top';
-            cell.style.height = '10rem'; // h-40 (160px)
-            cell.style.fontSize = '0.75rem'; // text-xs (12px)
+            cell.style.height = '10rem'; /* h-40 */
+            cell.style.fontSize = '0.75rem'; /* text-xs */
             cell.style.position = 'relative';
             cell.style.boxSizing = 'border-box';
-            cell.innerHTML = ''; // Clear cell content
+            cell.innerHTML = '';
 
-            if (i === 0 && j < firstDayOfWeek) {
-                cell.style.backgroundColor = '#f8fafc'; /* slate-50 */
-            } else if (date > totalDaysInMonth) {
-                cell.style.backgroundColor = '#f8fafc'; /* slate-50 */
-            } else {
+            if (i === 0 && j < firstDayOfWeek) { // Previous month
+                cell.style.backgroundColor = '#f8fafc';
+            } else if (date > totalDaysInMonth) { // Next month
+                cell.style.backgroundColor = '#f8fafc';
+                allDatesRendered = true; // Mark that we've passed the end of the month
+            } else { // Current month
+                rowContainsActualDate = true;
                 // Default weekday background
                 cell.style.backgroundColor = '#ffffff'; // White
                 // Apply weekend background if applicable
@@ -541,8 +565,8 @@ function renderShareCalendar(year, month, scheduleDays, participantsList) {
                     // cell.classList.add('today-cell-highlight'); // 식별용 클래스 추가
                 }
 
-                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
-                const daySchedule = scheduleDays.find(d => d.date === dateStr);
+                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(date).padStart(2, '0')}`; // Still needed for schedule lookup
+                const daySchedule = scheduleDays.find(d => d.date === dateStr); // Use the generated dateStr
 
                 if (daySchedule && daySchedule.timeSlots) {
                     daySchedule.timeSlots.forEach((slot, slotIndex) => {
@@ -632,14 +656,20 @@ function renderShareCalendar(year, month, scheduleDays, participantsList) {
                         cell.appendChild(slotDiv);
                     });
                 }
+                // IMPORTANT: date is incremented only if it's a valid day of the current month
                 date++;
             }
+            cellsForThisRow.push(cell);
         }
-        if (date > totalDaysInMonth && i < 5) { 
-            // This condition seems to be for breaking early if remaining rows are empty,
-            // but it's currently an empty block. It might be okay to leave as is or remove.
-            // For now, preserving its structure.
+
+        // Only append the row to the table if it contains any actual dates from the current month.
+        if (rowContainsActualDate) {
+            cellsForThisRow.forEach(cellContent => row.appendChild(cellContent));
+            tbody.appendChild(row);
         }
+
+        // If all dates for the month have been processed and this current row didn't add any new dates,
+        // then we can stop adding more rows. (This break is now handled by `allDatesRendered` at the start of the outer loop)
     }
     calendarContainer.appendChild(table);
 }
