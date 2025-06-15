@@ -675,19 +675,24 @@ async function handleGenerateSchedule() {
         displayMessage('일정이 성공적으로 생성되었습니다.', 'success');
     } catch (error) {
         console.error("Schedule generation failed:", error);
-        displayMessage(`일정 생성 실패: ${error.message}`, 'error');
-
-        let prevScheduleYear = year;
-        let prevScheduleMonth = month - 1;
-        if (prevScheduleMonth === 0) {
-          prevScheduleMonth = 12;
-          prevScheduleYear--;
+        if (error.message && error.message.startsWith('SCHEDULE_CONFIRMED:')) {
+            const userMessage = error.message.replace('SCHEDULE_CONFIRMED: ', '');
+            displayMessage(userMessage, 'warning'); // Display warning, do not clear calendar
+        } else {
+            displayMessage(`일정 생성 실패: ${error.message}`, 'error');
+            // For other errors, proceed to clear/re-render calendar as before
+            let prevScheduleYear = year;
+            let prevScheduleMonth = month - 1;
+            if (prevScheduleMonth === 0) {
+              prevScheduleMonth = 12;
+              prevScheduleYear--;
+            }
+            const allParticipants = await db.getAllParticipants();
+            const participantsMap = new Map();
+            allParticipants.forEach(p => participantsMap.set(p.id, p));
+            const prevMonthAbsentees = await db.getAbsenteesForMonth(prevScheduleYear, prevScheduleMonth);
+            renderCalendar(year, month, null, participantsMap, prevMonthAbsentees);
         }
-        // It's good practice to try/catch this, but following instructions.
-        // Assuming db.getAbsenteesForMonth handles its own errors or returns [].
-        const prevMonthAbsentees = await db.getAbsenteesForMonth(prevScheduleYear, prevScheduleMonth);
-
-        renderCalendar(year, month, null, new Map(), prevMonthAbsentees);
     } finally {
         generateBtn.disabled = false;
         generateBtn.innerHTML = '<i data-lucide="calendar-plus" class="mr-2 h-4 w-4"></i>일정 생성';
@@ -782,10 +787,11 @@ function renderCalendar(year, month, scheduleData, participantsMap = new Map(), 
 
 function displayMessage(message, type = 'info') {
     messageDiv.textContent = message;
-    messageDiv.className = 'p-3 rounded-md text-sm ';
+    messageDiv.className = 'p-3 rounded-md text-sm '; // Base classes
     switch (type) {
         case 'success': messageDiv.classList.add('bg-green-100', 'text-green-700'); break;
         case 'error': messageDiv.classList.add('bg-red-100', 'text-red-700'); break;
+        case 'warning': messageDiv.classList.add('bg-yellow-100', 'text-yellow-700'); break; // Added warning
         case 'info': default: messageDiv.classList.add('bg-sky-100', 'text-sky-700'); break;
     }
 }

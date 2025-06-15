@@ -14,20 +14,15 @@ const daysOfWeekKorConcise = ['일', '월', '화', '수', '목', '금', '토'];
 const yearInput = document.getElementById('share-year');
 const monthInput = document.getElementById('share-month');
 const viewScheduleBtn = document.getElementById('view-share-schedule-btn');
-const downloadBtn = document.getElementById('download-schedule-img-btn');
+// const downloadBtn = document.getElementById('download-schedule-img-btn'); // Removed
 const calendarContainer = document.getElementById('share-calendar-container');
 const messageDiv = document.getElementById('share-message');
 
-// New button for Excel Export
-const downloadExcelBtn = document.createElement('button');
-downloadExcelBtn.id = 'download-schedule-excel-btn';
-// Updated Excel button label and icon
-downloadExcelBtn.innerHTML = '<i data-lucide="download" class="mr-2 h-4 w-4"></i>엑셀';
-downloadExcelBtn.className = 'btn btn-secondary w-full sm:flex-1 py-2 px-4 inline-flex items-center justify-center';
-// Old logic removed:
-// if (downloadBtn && downloadBtn.parentNode) {
-//     downloadBtn.parentNode.insertBefore(downloadExcelBtn, downloadBtn.nextSibling);
-// }
+// New button for Excel Export - REMOVED
+// const downloadExcelBtn = document.createElement('button');
+// downloadExcelBtn.id = 'download-schedule-excel-btn';
+// downloadExcelBtn.innerHTML = '<i data-lucide="download" class="mr-2 h-4 w-4"></i>엑셀';
+// downloadExcelBtn.className = 'btn btn-secondary w-full sm:flex-1 py-2 px-4 inline-flex items-center justify-center';
 
 const modal = document.getElementById('editAssignmentModal');
 const modalTitle = document.getElementById('editModalTitle');
@@ -39,6 +34,7 @@ const modalSaveBtn = document.getElementById('editModalSaveBtn');
 const modalMessageDiv = document.getElementById('editModalMessage');
 
 let editContext = null; 
+let confirmScheduleBtn;
 
 
 export async function initShareView() {
@@ -60,17 +56,10 @@ export async function initShareView() {
 
     allParticipants = await db.getAllParticipants();
 
-    // Update Image Download button label and classes
-    if (downloadBtn) {
-        downloadBtn.innerHTML = '<i data-lucide="download" class="mr-2 h-4 w-4"></i>이미지';
-        downloadBtn.classList.remove('sm:w-auto');
-        downloadBtn.classList.add('sm:flex-1');
-    }
-
     // Update View Schedule button classes
     if (viewScheduleBtn) {
-        viewScheduleBtn.classList.remove('sm:w-auto');
-        viewScheduleBtn.classList.add('sm:flex-1');
+        viewScheduleBtn.classList.remove('sm:w-auto'); // Keep this adjustment
+        viewScheduleBtn.classList.add('sm:flex-1');    // Keep this adjustment
     }
 
     viewScheduleBtn.addEventListener('click', async () => {
@@ -86,10 +75,19 @@ export async function initShareView() {
         sessionStorage.setItem(SHARE_YEAR_KEY, year.toString());
         sessionStorage.setItem(SHARE_MONTH_KEY, month.toString());
         await loadAndRenderCalendar(currentYear, currentMonth);
+        await updateConfirmButtonState(currentYear, currentMonth); // Added call
     });
 
-    downloadBtn.addEventListener('click', handleDownload);
-    downloadExcelBtn.addEventListener('click', handleExportExcel);
+    // Create the New Consolidated Download Button
+    const downloadAllSharedBtn = document.createElement('button');
+    downloadAllSharedBtn.id = 'download-all-shared-btn';
+    downloadAllSharedBtn.innerHTML = '<i data-lucide="download" class="mr-2 h-4 w-4"></i>다운로드';
+    downloadAllSharedBtn.className = 'btn btn-secondary w-full sm:flex-1 py-2 px-4 inline-flex items-center justify-center';
+
+    downloadAllSharedBtn.addEventListener('click', async () => {
+        await handleDownload();
+        await handleExportExcel();
+    });
 
     // A. Element Initialization and Management
     // 1. inspectShareScheduleBtn (Button)
@@ -234,13 +232,21 @@ export async function initShareView() {
 
     // Detach buttons from any previous parent (this also handles if they were in an old wrapper)
     if (viewScheduleBtn.parentNode) viewScheduleBtn.parentNode.removeChild(viewScheduleBtn);
-    if (downloadBtn.parentNode) downloadBtn.parentNode.removeChild(downloadBtn);
-    if (downloadExcelBtn.parentNode) downloadExcelBtn.parentNode.removeChild(downloadExcelBtn);
+    // downloadBtn and downloadExcelBtn are no longer initialized, so no need to detach.
+
+    buttonGroupWrapper.innerHTML = ''; // Clear it first
+    // Create the '일정확정' button
+    confirmScheduleBtn = document.createElement('button');
+    confirmScheduleBtn.id = 'confirm-schedule-btn';
+    // Initial text will be set by `updateConfirmButtonState`
+    confirmScheduleBtn.className = 'btn btn-primary w-full sm:flex-1 py-2 px-4 inline-flex items-center justify-center';
+
+    confirmScheduleBtn.addEventListener('click', handleConfirmScheduleClick);
 
     // Append buttons to the new wrapper
     buttonGroupWrapper.appendChild(viewScheduleBtn);
-    buttonGroupWrapper.appendChild(downloadBtn);
-    buttonGroupWrapper.appendChild(downloadExcelBtn);
+    buttonGroupWrapper.appendChild(confirmScheduleBtn); // Add the new confirm button
+    buttonGroupWrapper.appendChild(downloadAllSharedBtn);
 
     // Append the new wrapper to the main grid
     if (mainGridDiv) {
@@ -261,8 +267,63 @@ export async function initShareView() {
     }
 
     await loadAndRenderCalendar(currentYear, currentMonth);
+    await updateConfirmButtonState(currentYear, currentMonth); // Added call
     lucide.createIcons(); // Ensure icons are processed after any innerHTML changes.
 }
+
+async function handleConfirmScheduleClick() {
+    if (!currentYear || !currentMonth) {
+        messageDiv.textContent = '년도와 월을 먼저 선택해주세요.';
+        messageDiv.className = 'my-2 text-red-500';
+        return;
+    }
+
+    confirmScheduleBtn.disabled = true; // Disable during operation
+
+    const isConfirmed = await shareLogic.isScheduleConfirmed(currentYear, currentMonth);
+
+    if (isConfirmed) {
+        // Currently '확정해제', so call cancel
+        const result = await shareLogic.cancelScheduleConfirmation(currentYear, currentMonth);
+        if (result.success) {
+            messageDiv.textContent = `${currentYear}년 ${currentMonth}월 일정 확정이 해제되었습니다.`;
+            messageDiv.className = 'my-2 text-green-600';
+        } else {
+            messageDiv.textContent = `확정 해제 실패: ${result.error}`;
+            messageDiv.className = 'my-2 text-red-500';
+        }
+    } else {
+        // Currently '일정확정', so call confirm
+        const result = await shareLogic.confirmSchedule(currentYear, currentMonth);
+        if (result.success) {
+            messageDiv.textContent = `${currentYear}년 ${currentMonth}월 일정이 확정되었습니다.`;
+            messageDiv.className = 'my-2 text-green-600';
+        } else {
+            messageDiv.textContent = `일정 확정 실패: ${result.error}`;
+            messageDiv.className = 'my-2 text-red-500';
+        }
+    }
+    await updateConfirmButtonState(currentYear, currentMonth);
+    confirmScheduleBtn.disabled = false;
+    lucide.createIcons(); // If button icon changes
+}
+
+async function updateConfirmButtonState(year, month) {
+    if (!confirmScheduleBtn || !year || !month) return;
+
+    const isConfirmed = await shareLogic.isScheduleConfirmed(year, month);
+    if (isConfirmed) {
+        confirmScheduleBtn.innerHTML = '<i data-lucide="unlock" class="mr-2 h-4 w-4"></i>확정해제';
+        confirmScheduleBtn.classList.remove('btn-primary');
+        confirmScheduleBtn.classList.add('btn-warning'); // Or another appropriate class for "cancel"
+    } else {
+        confirmScheduleBtn.innerHTML = '<i data-lucide="lock" class="mr-2 h-4 w-4"></i>일정확정';
+        confirmScheduleBtn.classList.remove('btn-warning');
+        confirmScheduleBtn.classList.add('btn-primary');
+    }
+    lucide.createIcons(); // To render new icons if any
+}
+
 
 async function handleExportExcel() {
     if (!currentScheduleData || !currentScheduleData.data || currentScheduleData.data.length === 0) {
@@ -804,6 +865,7 @@ async function handleSaveAssignment() {
         await shareLogic.replaceParticipant(currentYear, currentMonth, date, time, participantIdToEdit, newParticipantId);
         closeEditModal();
         await loadAndRenderCalendar(currentYear, currentMonth);
+        await updateConfirmButtonState(currentYear, currentMonth); // Added
         messageDiv.textContent = '일정 변경 저장 완료.';
         messageDiv.className = 'my-2 text-green-600';
     } catch (error) {
