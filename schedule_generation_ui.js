@@ -554,12 +554,12 @@ export function renderInspectionTable(analysisData, uniqueCategoryKeys, prevMont
 
     // 1. Create Table Header
     const headerCellClasses = 'px-2 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider';
-    const headerTitles = ['초중구분', '이름', '총 배정', '새벽', '1차랜덤', '2차랜덤', '기타']; // New fixed headers
+    const headerTitles = ['초중구분', '이름', '총 배정', '새벽', '그외랜덤']; // Updated fixed headers
 
     headerTitles.forEach(title => {
         const th = document.createElement('th');
         th.className = headerCellClasses;
-        if (['총 배정', '새벽', '1차랜덤', '2차랜덤'].includes(title)) {
+        if (['총 배정', '새벽', '그외랜덤'].includes(title)) { // Updated this line
             th.classList.add('text-center');
         }
         th.textContent = title;
@@ -599,8 +599,8 @@ export function renderInspectionTable(analysisData, uniqueCategoryKeys, prevMont
         tdTotal.className = 'px-2 py-2 whitespace-nowrap text-sm text-slate-600 text-center';
         tdTotal.textContent = participantAnalysis.totalAssignments;
 
-        // Aggregated Category Cells ('새벽', '1차랜덤', '2차랜덤')
-        const aggregatedKeysToDisplay = ['새벽', '1차랜덤', '2차랜덤', '기타'];
+        // Aggregated Category Cells ('새벽', '그외랜덤')
+        const aggregatedKeysToDisplay = ['새벽', '그외랜덤']; // Updated keys
 
         aggregatedKeysToDisplay.forEach(aggKey => {
             const tdAgg = tr.insertCell();
