@@ -1,5 +1,6 @@
 import * as logic from './schedule_generation_logic.js';
 import * as db from './db.js';
+import * as shareLogic from './share_logic.js';
 import * as attendanceLogic from './attendance_logic.js';
 import * as inspectionLogic from './inspection_logic.js'; // 새로 추가
 
@@ -55,6 +56,16 @@ export function initScheduleGenerationView(viewElementId) {
         monthInput.value = currentMonth.toString();
         // If you want to load the current month's schedule by default when nothing is stored:
         // loadScheduleDataForInputs();
+    }
+    // Always update button state after year/month are determined
+    if (yearInput && monthInput && yearInput.value && monthInput.value) {
+        updateGenerateButtonState(parseInt(yearInput.value), parseInt(monthInput.value));
+    }
+
+    // Add event listeners for year/month inputs to reload data and update button state
+    if (yearInput && monthInput) {
+        yearInput.addEventListener('change', loadScheduleDataForInputs);
+        monthInput.addEventListener('change', loadScheduleDataForInputs);
     }
 
     generateBtn.addEventListener('click', handleGenerateSchedule);
@@ -323,6 +334,30 @@ async function loadScheduleDataForInputs() {
         renderCalendar(year, month, null, new Map(), prevMonthAbsentees); // Render empty calendar on error
     }
     if (typeof lucide !== 'undefined') lucide.createIcons();
+    // Call updateGenerateButtonState after loading data
+    if (yearInput && monthInput && yearInput.value && monthInput.value) {
+        await updateGenerateButtonState(parseInt(yearInput.value), parseInt(monthInput.value));
+    }
+}
+
+async function updateGenerateButtonState(year, month) {
+    if (!generateBtn) return; // Make sure generateBtn is initialized
+
+    try {
+        const confirmed = await shareLogic.isScheduleConfirmed(year, month);
+        if (confirmed) {
+            generateBtn.disabled = true;
+            generateBtn.title = '이미 확정된 일정입니다. 재생성할 수 없습니다.';
+        } else {
+            generateBtn.disabled = false;
+            generateBtn.title = '클릭하여 이 달의 새 일정을 생성합니다.';
+        }
+    } catch (error) {
+        console.error('Error updating generate button state:', error);
+        // Default to enabled state in case of error, or handle as per specific UX preference
+        generateBtn.disabled = false;
+        generateBtn.title = '일정 생성 가능 여부 확인 중 오류 발생';
+    }
 }
 
 // New handler for the "Inspect Schedule" button click in the UI
@@ -474,6 +509,11 @@ async function handleViewExistingSchedule() {
         displayMessage('기존 일정 로드 중 오류 발생.', 'error');
     }
     if (typeof lucide !== 'undefined') lucide.createIcons();
+
+    // Update button state after viewing existing schedule
+    if (yearInput && monthInput && yearInput.value && monthInput.value) {
+        await updateGenerateButtonState(year, month);
+    }
 }
 
 // The old openScheduleInspectionModal function is removed.
@@ -725,9 +765,14 @@ async function handleGenerateSchedule() {
             renderCalendar(year, month, null, participantsMap, prevMonthAbsentees);
         }
     } finally {
-        generateBtn.disabled = false;
+        generateBtn.disabled = false; // Temporarily enable before state check
         generateBtn.innerHTML = '<i data-lucide="calendar-plus" class="mr-2 h-4 w-4"></i>일정 생성';
-        lucide.createIcons();
+        lucide.createIcons(); // Re-create icons first
+
+        // Update button state after generation attempt
+        if (yearInput && monthInput && yearInput.value && monthInput.value) {
+         await updateGenerateButtonState(year, month);
+        }
     }
 }
 
