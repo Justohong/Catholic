@@ -91,8 +91,7 @@ export async function analyzeScheduleForInspection(year, month) {
         for (const participantAnalysis of inspectionAnalysis.values()) {
             participantAnalysis.aggregatedByCategory = new Map();
             participantAnalysis.aggregatedByCategory.set('새벽', { count: 0, fixedCount: 0 });
-            participantAnalysis.aggregatedByCategory.set('1차랜덤', { count: 0, fixedCount: 0 });
-            participantAnalysis.aggregatedByCategory.set('2차랜덤', { count: 0, fixedCount: 0 });
+            participantAnalysis.aggregatedByCategory.set('그외랜덤', { count: 0, fixedCount: 0 });
         }
         const resultForNoSchedule = Array.from(inspectionAnalysis.values());
         resultForNoSchedule.sort((a, b) => {
@@ -112,7 +111,7 @@ export async function analyzeScheduleForInspection(year, month) {
             // Tertiary sort: participantName (ascending)
             return a.participantName.localeCompare(b.participantName);
         });
-        const newAggregatedCategoryKeys = ['새벽', '1차랜덤', '2차랜덤'];
+        const newAggregatedCategoryKeys = ['새벽', '그외랜덤'];
         return {
             message: "해당 월에 생성된 일정이 없습니다.",
             analysis: resultForNoSchedule,
@@ -194,27 +193,20 @@ export async function analyzeScheduleForInspection(year, month) {
             count: el_6am_data.count + mid_7am_data.count,
             fixedCount: el_6am_data.fixedCount + mid_7am_data.fixedCount
         });
-        participantAnalysis.aggregatedByCategory.set('1차랜덤', {
-            count: el_rand_data.count + mid_rand_data.count,
-            fixedCount: el_rand_data.fixedCount + mid_rand_data.fixedCount
-        });
-        participantAnalysis.aggregatedByCategory.set('2차랜덤', {
-            count: el_fall_data.count + mid_fall_data.count,
-            fixedCount: el_fall_data.fixedCount + mid_fall_data.fixedCount
-        });
 
-        let otherCount = 0;
-        let otherFixedCount = 0;
+        let otherRandomCount = el_rand_data.count + mid_rand_data.count + el_fall_data.count + mid_fall_data.count;
+        let otherRandomFixedCount = el_rand_data.fixedCount + mid_rand_data.fixedCount + el_fall_data.fixedCount + mid_fall_data.fixedCount;
+
         for (const [categoryKey, stats] of participantAnalysis.assignmentsByCategory.entries()) {
             if (!explicitlyAggregatedKeys.has(categoryKey)) {
-                otherCount += stats.count;
-                otherFixedCount += stats.fixedCount;
+                otherRandomCount += stats.count;
+                otherRandomFixedCount += stats.fixedCount;
             }
         }
-        participantAnalysis.aggregatedByCategory.set('기타', { count: otherCount, fixedCount: otherFixedCount });
+        participantAnalysis.aggregatedByCategory.set('그외랜덤', { count: otherRandomCount, fixedCount: otherRandomFixedCount });
     }
 
-    const newAggregatedCategoryKeys = ['새벽', '1차랜덤', '2차랜덤', '기타'];
+    const newAggregatedCategoryKeys = ['새벽', '그외랜덤'];
 
     return {
         analysis: finalAnalysis,
