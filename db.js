@@ -28,7 +28,7 @@ export function __clearMockData() {
 }
 
 const DB_NAME = 'SchedulePWA_DB';
-const DB_VERSION = 6; // Incremented DB version
+const DB_VERSION = 7; // DB 버전 증가
 const PARTICIPANTS_STORE_NAME = 'participants';
 const SCHEDULES_STORE_NAME = 'schedules';
 const SCHEDULE_CONFIRMATIONS_STORE_NAME = 'scheduleConfirmations'; // New store name
@@ -78,11 +78,15 @@ export function openDB() {
                 store.createIndex('yearMonthIndex', ['year', 'month'], { unique: false });
                 store.createIndex('participantMonthIndex', ['participantId', 'year', 'month'], { unique: false });
             }
-            // Add scheduleConfirmations store if it doesn't exist
+            
+            // 일정 확정 저장소 재구성
             if (tempDb.objectStoreNames.contains(SCHEDULE_CONFIRMATIONS_STORE_NAME)) {
                 tempDb.deleteObjectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
             }
-            tempDb.createObjectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME, { keyPath: ['year', 'month'] });
+            
+            // 키 경로를 문자열로 변경하여 저장 문제 해결
+            const confirmStore = tempDb.createObjectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME, { keyPath: 'id' });
+            confirmStore.createIndex('yearMonth', ['year', 'month'], { unique: true });
         };
     });
 }
@@ -92,85 +96,150 @@ export async function setScheduleConfirmation(year, month, status) {
     const tx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readwrite');
     const store = tx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
 
-    // Explicitly create the object to be stored
+    // 고유 ID 생성 (year_month 형식)
+    const id = `${year}_${month}`;
+    
+    // 저장할 객체 생성
     const recordToStore = {
+        id: id,
         year: year,
         month: month,
-        confirmed: status
+        confirmed: status,
+        timestamp: new Date().getTime() // 타임스탬프 추가
     };
 
     console.log(`[db.js] setScheduleConfirmation for ${year}-${month}: Attempting to store record:`, JSON.stringify(recordToStore));
 
-    const request = store.put(recordToStore);
-
-    const getRequestAfterPut = store.get([year, month]);
-    getRequestAfterPut.onsuccess = () => {
-        console.log(`[db.js] DEBUG setScheduleConfirmation for ${year}-${month}: Data immediately after store.put (within same tx):`, JSON.stringify(getRequestAfterPut.result));
-    };
-    getRequestAfterPut.onerror = (event) => {
-        console.error(`[db.js] DEBUG setScheduleConfirmation for ${year}-${month}: ERROR reading immediately after store.put:`, event.target.error);
-    };
-
-    await new Promise((resolve, reject) => {
-        request.onsuccess = () => {
-            console.log(`[db.js] setScheduleConfirmation for ${year}-${month}: store.put successful.`);
-            resolve();
-        };
-        request.onerror = (event) => {
-            console.error(`[db.js] setScheduleConfirmation for ${year}-${month}: store.put ERROR:`, event.target.error);
-            reject(event.target.error);
-        };
-    });
-
-    await tx.done;
-    console.log(`[db.js] setScheduleConfirmation for ${year}-${month}: Transaction done. Status set to ${status}.`);
-
-    console.log(`[db.js] DEBUG setScheduleConfirmation for ${year}-${month}: Transaction supposedly done. Re-opening to verify data.`);
-    const newTx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readonly');
-    const newStore = newTx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
-    const verifyRequest = newStore.get([year, month]);
-    await new Promise((resolve, reject) => {
-        verifyRequest.onsuccess = () => {
-            console.log(`[db.js] DEBUG setScheduleConfirmation for ${year}-${month}: Data after tx.done (verified in new tx):`, JSON.stringify(verifyRequest.result));
-            resolve();
-        };
-        verifyRequest.onerror = (event) => {
-            console.error(`[db.js] DEBUG setScheduleConfirmation for ${year}-${month}: ERROR verifying data after tx.done:`, event.target.error);
-            reject(event.target.error);
-        };
-    });
-    await newTx.done;
+    try {
+        // 기존 방식 대신 명시적 Promise 사용
+        await new Promise((resolve, reject) => {
+            const request = store.put(recordToStore);
+            
+            request.onsuccess = () => {
+                console.log(`[db.js] setScheduleConfirmation for ${year}-${month}: store.put successful.`);
+                resolve();
+            };
+            
+            request.onerror = (event) => {
+                console.error(`[db.js] setScheduleConfirmation for ${year}-${month}: store.put ERROR:`, event.target.error);
+                reject(event.target.error);
+            };
+        });
+        
+        // 트랜잭션 완료 대기
+        await tx.done;
+        console.log(`[db.js] setScheduleConfirmation for ${year}-${month}: Transaction done. Status set to ${status}.`);
+        
+        // 저장 확인
+        const verifyTx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readonly');
+        const verifyStore = verifyTx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
+        
+        const verificationResult = await new Promise((resolve) => {
+            const verifyRequest = verifyStore.get(id);
+            verifyRequest.onsuccess = () => resolve(verifyRequest.result);
+            verifyRequest.onerror = () => resolve(null);
+        });
+        
+        console.log(`[db.js] Verification after setScheduleConfirmation for ${year}-${month}:`, JSON.stringify(verificationResult));
+        
+        // 로컬 스토리지에 백업 저장 (IndexedDB 문제 대비)
+        try {
+            localStorage.setItem(`schedule_confirmed_${id}`, JSON.stringify({
+                year, month, confirmed: status, timestamp: recordToStore.timestamp
+            }));
+            console.log(`[db.js] Backup saved to localStorage for ${year}-${month}`);
+        } catch (e) {
+            console.warn(`[db.js] Failed to save backup to localStorage: ${e.message}`);
+        }
+        
+        return { success: true };
+    } catch (error) {
+        console.error(`[db.js] Error in setScheduleConfirmation for ${year}-${month}:`, error);
+        return { success: false, error: error.message || "Unknown error" };
+    }
 }
 
 export async function getScheduleConfirmation(year, month) {
-    const db = await openDB();
-    const tx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readonly');
-    const store = tx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
-    const record = await store.get([year, month]);
-    await tx.done;
-
-    // Previous log to be removed or kept for extended debugging by user if they wish:
-    // console.log(`[db.js] getScheduleConfirmation for ${year}-${month}: Record found:`, JSON.stringify(record), 'Will return:', record ? record.confirmed : false);
-
-    // New robust check and logging:
-    console.log(`[db.js] getScheduleConfirmation DEBUG for ${year}-${month}. Raw record from DB:`, JSON.stringify(record));
-
-    if (record && typeof record.confirmed === 'boolean') {
-        console.log(`[db.js] getScheduleConfirmation for ${year}-${month}: Valid record found. Returning 'confirmed' property: ${record.confirmed}`);
-        return record.confirmed;
-    } else {
-        console.log(`[db.js] getScheduleConfirmation for ${year}-${month}: Record not found, or 'confirmed' property is missing or not a boolean. Defaulting to false. Raw record was: ${JSON.stringify(record)}`);
-        return false; // Default to false if record is not as expected
+    try {
+        const db = await openDB();
+        const id = `${year}_${month}`;
+        
+        // 1. 먼저 IndexedDB에서 확인
+        const tx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readonly');
+        const store = tx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
+        
+        const record = await new Promise((resolve) => {
+            const request = store.get(id);
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => resolve(null);
+        });
+        
+        console.log(`[db.js] getScheduleConfirmation for ${year}-${month} from IndexedDB:`, JSON.stringify(record));
+        
+        if (record && typeof record.confirmed === 'boolean') {
+            return record.confirmed;
+        }
+        
+        // 2. IndexedDB에 없으면 localStorage 백업에서 확인
+        try {
+            const backupStr = localStorage.getItem(`schedule_confirmed_${id}`);
+            if (backupStr) {
+                const backup = JSON.parse(backupStr);
+                console.log(`[db.js] getScheduleConfirmation for ${year}-${month} from localStorage:`, JSON.stringify(backup));
+                
+                if (backup && typeof backup.confirmed === 'boolean') {
+                    // 백업에서 찾았으면 IndexedDB에 다시 저장 시도
+                    try {
+                        await setScheduleConfirmation(year, month, backup.confirmed);
+                    } catch (e) {
+                        console.warn(`[db.js] Failed to restore confirmation from backup to IndexedDB: ${e.message}`);
+                    }
+                    return backup.confirmed;
+                }
+            }
+        } catch (e) {
+            console.warn(`[db.js] Error reading from localStorage: ${e.message}`);
+        }
+        
+        // 3. 어디에도 없으면 기본값 반환
+        console.log(`[db.js] getScheduleConfirmation for ${year}-${month}: No valid record found. Defaulting to false.`);
+        return false;
+    } catch (error) {
+        console.error(`[db.js] Error in getScheduleConfirmation for ${year}-${month}:`, error);
+        return false; // 오류 발생 시 기본값 반환
     }
 }
 
 export async function removeScheduleConfirmation(year, month) {
-    const db = await openDB();
-    const tx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readwrite');
-    const store = tx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
-    await store.delete([year, month]);
-    await tx.done;
-    console.log(`Schedule confirmation for ${year}-${month} removed.`);
+    try {
+        const db = await openDB();
+        const id = `${year}_${month}`;
+        
+        // IndexedDB에서 삭제
+        const tx = db.transaction(SCHEDULE_CONFIRMATIONS_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(SCHEDULE_CONFIRMATIONS_STORE_NAME);
+        
+        await new Promise((resolve, reject) => {
+            const request = store.delete(id);
+            request.onsuccess = () => resolve();
+            request.onerror = (event) => reject(event.target.error);
+        });
+        
+        await tx.done;
+        
+        // localStorage 백업도 삭제
+        try {
+            localStorage.removeItem(`schedule_confirmed_${id}`);
+        } catch (e) {
+            console.warn(`[db.js] Failed to remove localStorage backup: ${e.message}`);
+        }
+        
+        console.log(`[db.js] Schedule confirmation for ${year}-${month} removed successfully.`);
+        return { success: true };
+    } catch (error) {
+        console.error(`[db.js] Error removing schedule confirmation for ${year}-${month}:`, error);
+        return { success: false, error: error.message || "Unknown error" };
+    }
 }
 
 export async function addParticipant(participant) {
