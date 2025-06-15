@@ -864,7 +864,7 @@ async function populateParticipantSelect() {
         if (p.type === '초등') typeColorClass = 'text-sky-700';
         else if (p.type === '중등') typeColorClass = 'text-emerald-700';
         
-        option.innerHTML = `${p.name} (<span class="${typeColorClass}">${p.type}</span>, ${p.gender})`;
+        option.innerHTML = `${p.name} (<span class="${typeColorClass}">${p.type}</span>, ${p.gender}, ${p.copyType})`;
         modalParticipantSelect.appendChild(option);
     });
 }
